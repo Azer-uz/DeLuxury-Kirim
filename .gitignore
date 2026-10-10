@@ -1,0 +1,23 @@
+# Muhit o'zgaruvchilari (maxfiy ma'lumotlar)
+.env
+.venv/
+venv/
+ENV/
+
+# Python kesh
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Ma'lumotlar bazasi
+*.db
+*.db-shm
+*.db-wal
+
+# Yuklangan fayllar
+uploads/
+temp/
+
+# IDE
+.vscode/
+.idea/

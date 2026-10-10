@@ -1,0 +1,720 @@
+// References & Manbalar Management with Sorting, Filtering & Excel Import/Export
+const References = {
+  data: {
+    groups: [],
+    seasons: [],
+    season_types: [],
+    sizes: [],
+    categories: [],
+    product_types: [],
+    brands: [],
+    colors: [],
+    countries: [],
+    product_type_map: {},
+    season_map: {}
+  },
+
+  sortState: {
+    column: 'name',
+    direction: 'asc' // 'asc' or 'desc'
+  },
+
+  filterState: {
+    search: '',
+    category: '',
+    group: '',
+    status: ''
+  },
+
+  async init() {
+    try {
+      const resp = await fetch('/api/references/all');
+      if (resp.ok) {
+        this.data = await resp.json();
+      }
+    } catch (e) {
+      console.error("Error loading references:", e);
+    }
+  },
+
+  getProductTypeInfo(productTypeName) {
+    if (!productTypeName) return { category: '', group: '', group_code: 'UND' };
+    const pt = this.data.product_type_map[productTypeName.trim()];
+    if (pt) {
+      return {
+        category: pt.category || '',
+        group: pt.group || '',
+        group_code: pt.group_code || 'UND'
+      };
+    }
+    // Case-insensitive fallback
+    const key = Object.keys(this.data.product_type_map).find(
+      k => k.toLowerCase() === productTypeName.trim().toLowerCase()
+    );
+    if (key) {
+      const found = this.data.product_type_map[key];
+      return {
+        category: found.category || '',
+        group: found.group || '',
+        group_code: found.group_code || 'UND'
+      };
+    }
+    return { category: '', group: '', group_code: 'UND' };
+  },
+
+  getSeasonCode(collectionName) {
+    if (!collectionName) return 'CON';
+    const clean = collectionName.trim();
+    if (this.data.season_map[clean]) {
+      return this.data.season_map[clean];
+    }
+    const key = Object.keys(this.data.season_map).find(
+      k => k.toLowerCase() === clean.toLowerCase()
+    );
+    if (key) return this.data.season_map[key];
+
+    const upper = clean.toUpperCase();
+    if (upper.startsWith('AW')) return 'A' + upper.substring(2);
+    if (upper.startsWith('SS')) return 'S' + upper.substring(2);
+    return upper.substring(0, 3);
+  },
+
+  calculateRow(row, rowIndex, baseCounter = 500) {
+    const pType = (row.product_type || '').trim();
+    const coll = (row.collection || 'AW26').trim();
+    const brand = (row.brand || '').trim();
+    const desc = (row.description || '').trim();
+    const model = (row.model_code || '').trim();
+    const qty = parseFloat(row.quantity) || 0;
+    const pBuy = parseFloat(row.price_buy) || 0;
+    const pSale = parseFloat(row.price_sale) || 0;
+
+    const ptInfo = this.getProductTypeInfo(pType);
+    const seasonCode = this.getSeasonCode(coll);
+    const groupCode = ptInfo.group_code || 'UND';
+
+    const sequenceNum = baseCounter + rowIndex + 1;
+    const zeroPadded = String(sequenceNum).padStart(5, '0');
+    const calculatedArticul = `${seasonCode}${groupCode}${zeroPadded}`;
+
+    const nameParts = [pType, desc, brand, model].filter(Boolean);
+    const fullName = nameParts.join(' ').trim();
+
+    let markupPct = 0;
+    if (pBuy > 0) {
+      markupPct = Math.round(((pSale / pBuy) - 1) * 1000) / 10;
+    }
+
+    const sumBuy = Math.round((qty * pBuy) * 100) / 100;
+    const sumSale = Math.round((qty * pSale) * 100) / 100;
+
+    return {
+      category: ptInfo.category,
+      group_name: ptInfo.group,
+      group_code: groupCode,
+      season_code: seasonCode,
+      articul: row.custom_articul ? row.articul : calculatedArticul,
+      calculated_articul: calculatedArticul,
+      full_name: fullName,
+      markup_pct: markupPct,
+      sum_buy: sumBuy,
+      sum_sale: sumSale
+    };
+  }
+};
+
+// UI Render for Manbalar & Ierarxiya
+function renderReferencesUI(activeTab = 'ref-product-types') {
+  const container = document.getElementById('ref-content-container');
+  if (!container) return;
+
+  if (activeTab === 'ref-product-types') {
+    renderHierarchySubtab(container);
+  } else if (activeTab === 'ref-groups') {
+    renderGroupsSubtab(container);
+  } else if (activeTab === 'ref-seasons') {
+    renderSeasonsSubtab(container);
+  } else if (activeTab === 'ref-season-types') {
+    renderSeasonTypesSubtab(container);
+  } else if (activeTab === 'ref-sizes') {
+    renderSizesSubtab(container);
+  } else if (activeTab === 'ref-brands') {
+    renderBrandsSubtab(container);
+  } else if (activeTab === 'ref-colors') {
+    renderColorsSubtab(container);
+  } else if (activeTab === 'ref-countries') {
+    renderCountriesSubtab(container);
+  }
+}
+
+// 1. Ierarxiya Subtab with Sorting, Filtering, CRUD, and Import/Export
+function renderHierarchySubtab(container) {
+  const allProductTypes = References.data.product_types || [];
+  const categoriesList = [...new Set(allProductTypes.map(p => p.category).filter(Boolean))].sort();
+  const groupsList = (References.data.groups || []).map(g => g.name).sort();
+
+  // Filter items
+  let filtered = allProductTypes.filter(pt => {
+    const q = References.filterState.search.toLowerCase();
+    const matchSearch = !q || (
+      pt.name.toLowerCase().includes(q) ||
+      (pt.category && pt.category.toLowerCase().includes(q)) ||
+      (pt.group && pt.group.toLowerCase().includes(q)) ||
+      (pt.group_code && pt.group_code.toLowerCase().includes(q))
+    );
+    const matchCat = !References.filterState.category || pt.category === References.filterState.category;
+    const matchGroup = !References.filterState.group || pt.group === References.filterState.group;
+    const matchStatus = !References.filterState.status || (
+      References.filterState.status === 'synced' ? pt.status === 'synced' : pt.status !== 'synced'
+    );
+    return matchSearch && matchCat && matchGroup && matchStatus;
+  });
+
+  // Sort items
+  const { column, direction } = References.sortState;
+  filtered.sort((a, b) => {
+    let valA = (a[column] || '').toString().toLowerCase();
+    let valB = (b[column] || '').toString().toLowerCase();
+    if (column === 'id') {
+      valA = a.id || 0;
+      valB = b.id || 0;
+      return direction === 'asc' ? valA - valB : valB - valA;
+    }
+    const cmp = valA.localeCompare(valB, 'ru');
+    return direction === 'asc' ? cmp : -cmp;
+  });
+
+  const getSortIcon = (col) => {
+    if (References.sortState.column !== col) return '⇅';
+    return References.sortState.direction === 'asc' ? '▲' : '▼';
+  };
+
+  let html = `
+    <!-- Action and Filter Bar -->
+    <div style="display: flex; gap: 0.75rem; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 1rem;">
+      <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; flex: 1;">
+        <input type="text" id="ref-search-input" class="form-control" placeholder="Qidirish (masalan Футболка, Куртка)..." 
+               value="${References.filterState.search}" style="max-width: 240px;">
+        
+        <!-- Category Filter -->
+        <select class="form-control" id="ref-filter-category" style="max-width: 180px;">
+          <option value="">Barcha Kategoriyalar</option>
+          ${categoriesList.map(c => `<option value="${c}" ${References.filterState.category === c ? 'selected' : ''}>${c}</option>`).join('')}
+        </select>
+
+        <!-- Group Filter -->
+        <select class="form-control" id="ref-filter-group" style="max-width: 180px;">
+          <option value="">Barcha Guruhlar</option>
+          ${groupsList.map(g => `<option value="${g}" ${References.filterState.group === g ? 'selected' : ''}>${g}</option>`).join('')}
+        </select>
+
+        <!-- Status Filter -->
+        <select class="form-control" id="ref-filter-status" style="max-width: 150px;">
+          <option value="">Barcha Holatlar</option>
+          <option value="synced" ${References.filterState.status === 'synced' ? 'selected' : ''}>✅ Mos keldi</option>
+          <option value="local" ${References.filterState.status === 'local' ? 'selected' : ''}>📦 Lokal</option>
+        </select>
+      </div>
+
+      <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+        <button class="btn btn-primary btn-sm" id="btn-open-pt-add-modal">
+          <span>➕</span> Yangi Mahsulot turi
+        </button>
+        <a href="/api/references/export-hierarchy-csv" class="btn btn-secondary btn-sm" style="text-decoration: none;">
+          <span>📥</span> CSV Shablon
+        </a>
+        <button class="btn btn-secondary btn-sm" id="btn-open-import-modal">
+          <span>📤</span> Excel/CSV Import
+        </button>
+      </div>
+    </div>
+
+    <!-- Header Stats -->
+    <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">
+      <span>Ko'rsatilmoqda: <b>${filtered.length}</b> ta / Jami: <b>${allProductTypes.length}</b> ta</span>
+      <span>Saralash: <b>${References.sortState.column}</b> (${References.sortState.direction.toUpperCase()})</span>
+    </div>
+
+    <!-- Hierarchy Table -->
+    <div style="max-height: 520px; overflow: auto; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
+      <table class="history-table">
+        <thead>
+          <tr>
+            <th style="width: 40px; cursor: pointer;" onclick="References.toggleSort('id')">
+              № <span style="font-size: 0.7rem; color: #38bdf8;">${getSortIcon('id')}</span>
+            </th>
+            <th style="cursor: pointer;" onclick="References.toggleSort('name')">
+              Вид товара <span style="font-size: 0.7rem; color: #38bdf8;">${getSortIcon('name')}</span>
+            </th>
+            <th style="cursor: pointer;" onclick="References.toggleSort('category')">
+              Категория <span style="font-size: 0.7rem; color: #38bdf8;">${getSortIcon('category')}</span>
+            </th>
+            <th style="cursor: pointer;" onclick="References.toggleSort('group')">
+              Группа <span style="font-size: 0.7rem; color: #38bdf8;">${getSortIcon('group')}</span>
+            </th>
+            <th style="cursor: pointer;" onclick="References.toggleSort('group_code')">
+              Guruh Kodi <span style="font-size: 0.7rem; color: #38bdf8;">${getSortIcon('group_code')}</span>
+            </th>
+            <th style="cursor: pointer;" onclick="References.toggleSort('status')">
+              MoySklad Holati <span style="font-size: 0.7rem; color: #38bdf8;">${getSortIcon('status')}</span>
+            </th>
+            <th style="width: 100px; text-align: center;">Amallar</th>
+          </tr>
+        </thead>
+        <tbody id="ref-pt-tbody">
+  `;
+
+  if (filtered.length === 0) {
+    html += `
+      <tr>
+        <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 2rem;">
+          Qidiruv yoki filtr bo'yicha mahsulot turi topilmadi.
+        </td>
+      </tr>
+    `;
+  } else {
+    filtered.forEach((pt, i) => {
+      html += `
+        <tr>
+          <td>${i + 1}</td>
+          <td><b>${pt.name}</b></td>
+          <td>${pt.category || '<span style="color: var(--text-dim);">-</span>'}</td>
+          <td>${pt.group || '<span style="color: var(--text-dim);">-</span>'}</td>
+          <td><span class="kbd" style="font-weight: 700; color: #fbbf24;">${pt.group_code}</span></td>
+          <td><span class="badge ${pt.status === 'synced' ? 'badge-synced' : 'badge-local'}">${pt.status === 'synced' ? '✅ Mos keldi' : '📦 Lokal'}</span></td>
+          <td style="text-align: center;">
+            <div class="row-actions">
+              <button class="btn-icon" title="Tahrirlash" onclick="openProductTypeEditModal(${pt.id})">✏️</button>
+              <button class="btn-icon delete" title="O'chirish" onclick="deleteProductTypeItem(${pt.id}, '${pt.name}')">🗑️</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    });
+  }
+
+  html += `</tbody></table></div>`;
+  container.innerHTML = html;
+
+  // Bind Filters
+  document.getElementById('ref-search-input')?.addEventListener('input', (e) => {
+    References.filterState.search = e.target.value;
+    renderHierarchySubtab(container);
+  });
+  document.getElementById('ref-filter-category')?.addEventListener('change', (e) => {
+    References.filterState.category = e.target.value;
+    renderHierarchySubtab(container);
+  });
+  document.getElementById('ref-filter-group')?.addEventListener('change', (e) => {
+    References.filterState.group = e.target.value;
+    renderHierarchySubtab(container);
+  });
+  document.getElementById('ref-filter-status')?.addEventListener('change', (e) => {
+    References.filterState.status = e.target.value;
+    renderHierarchySubtab(container);
+  });
+
+  // Open Add modal
+  document.getElementById('btn-open-pt-add-modal')?.addEventListener('click', () => {
+    openProductTypeAddModal();
+  });
+
+  // Open Import modal
+  document.getElementById('btn-open-import-modal')?.addEventListener('click', () => {
+    const modal = document.getElementById('modal-import-hierarchy');
+    if (modal) modal.classList.add('active');
+  });
+}
+
+References.toggleSort = function(col) {
+  if (this.sortState.column === col) {
+    this.sortState.direction = this.sortState.direction === 'asc' ? 'desc' : 'asc';
+  } else {
+    this.sortState.column = col;
+    this.sortState.direction = 'asc';
+  }
+  const container = document.getElementById('ref-content-container');
+  if (container) renderHierarchySubtab(container);
+};
+
+// 2. Groups Subtab
+function renderGroupsSubtab(container) {
+  const list = References.data.groups || [];
+  let html = `
+    <div style="max-height: 450px; overflow: auto; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
+      <table class="history-table">
+        <thead>
+          <tr>
+            <th>№</th>
+            <th>Группа (Guruh)</th>
+            <th>Артикул Kodi (3 harf)</th>
+            <th>Holat</th>
+          </tr>
+        </thead>
+        <tbody>
+  `;
+  list.forEach((g, i) => {
+    html += `
+      <tr>
+        <td>${i + 1}</td>
+        <td><b>${g.name}</b></td>
+        <td><span class="kbd" style="font-size: 0.9rem; font-weight: 700; color: #fbbf24;">${g.code}</span></td>
+        <td><span class="badge badge-synced">✅ Faol</span></td>
+      </tr>
+    `;
+  });
+  html += `</tbody></table></div>`;
+  container.innerHTML = html;
+}
+
+// 3. Seasons (Mavsum Kolleksiya) Subtab
+function renderSeasonsSubtab(container) {
+  const list = References.data.seasons || [];
+  let html = `
+    <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+      <input type="text" id="new-season-coll" class="form-control" placeholder="Yangi kolleksiya (masalan SS27)" style="max-width: 200px;">
+      <input type="text" id="new-season-code" class="form-control" placeholder="Kodi (masalan S27)" style="max-width: 150px;">
+      <button class="btn btn-primary btn-sm" id="btn-add-season-ref">➕ Qo'shish</button>
+    </div>
+    <div style="max-height: 450px; overflow: auto; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
+      <table class="history-table">
+        <thead>
+          <tr>
+            <th>№</th>
+            <th>Коллекция</th>
+            <th>Артикул Kodi</th>
+            <th>Holat</th>
+          </tr>
+        </thead>
+        <tbody>
+  `;
+  list.forEach((s, i) => {
+    html += `
+      <tr>
+        <td>${i + 1}</td>
+        <td><b>${s.collection}</b></td>
+        <td><span class="kbd" style="font-size: 0.9rem; font-weight: 700; color: #38bdf8;">${s.code}</span></td>
+        <td><span class="badge badge-synced">✅ Faol</span></td>
+      </tr>
+    `;
+  });
+  html += `</tbody></table></div>`;
+  container.innerHTML = html;
+
+  document.getElementById('btn-add-season-ref')?.addEventListener('click', async () => {
+    const col = document.getElementById('new-season-coll').value.trim();
+    const cod = document.getElementById('new-season-code').value.trim();
+    if (!col || !cod) return alert("Kolleksiya va kodni kiriting!");
+    const res = await fetch('/api/references/season', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ collection: col, code: cod })
+    });
+    if (res.ok) {
+      await References.init();
+      renderReferencesUI('ref-seasons');
+      showToast("Mavsum kodi saqlandi!", "success");
+    }
+  });
+}
+
+// 4. Season Types (Sezonlar: Весна-Осень, Зима, etc.) Subtab
+function renderSeasonTypesSubtab(container) {
+  const list = References.data.season_types || [];
+  let html = `
+    <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+      <input type="text" id="new-season-type-name" class="form-control" placeholder="Yangi sezon nomi (masalan: Демисезон)..." style="max-width: 250px;">
+      <button class="btn btn-primary btn-sm" id="btn-add-season-type">➕ Sezon qo'shish</button>
+    </div>
+    <div style="max-height: 450px; overflow: auto; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
+      <table class="history-table">
+        <thead>
+          <tr>
+            <th>№</th>
+            <th>Sezon (Fasl Nomi)</th>
+            <th>Holat</th>
+            <th style="width: 80px; text-align: center;">Amal</th>
+          </tr>
+        </thead>
+        <tbody>
+  `;
+  list.forEach((st, i) => {
+    html += `
+      <tr>
+        <td>${i + 1}</td>
+        <td><b>${st.name}</b></td>
+        <td><span class="badge badge-synced">✅ Faol</span></td>
+        <td style="text-align: center;">
+          <button class="btn-icon delete" title="O'chirish" onclick="deleteSeasonTypeItem(${st.id})">🗑️</button>
+        </td>
+      </tr>
+    `;
+  });
+  html += `</tbody></table></div>`;
+  container.innerHTML = html;
+
+  document.getElementById('btn-add-season-type')?.addEventListener('click', async () => {
+    const name = document.getElementById('new-season-type-name').value.trim();
+    if (!name) return alert("Sezon nomini kiriting!");
+    const res = await fetch('/api/references/season-type', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+    if (res.ok) {
+      await References.init();
+      renderReferencesUI('ref-season-types');
+      showToast("Sezon muvaffaqiyatli qo'shildi!", "success");
+    }
+  });
+}
+
+// 5. Sizes (Razmerlar / O'lchamlar) Subtab
+function renderSizesSubtab(container) {
+  const list = References.data.sizes || [];
+  let html = `
+    <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+      <input type="text" id="new-size-name" class="form-control" placeholder="Yangi o'lcham (masalan: 58, 6XL)..." style="max-width: 250px;">
+      <button class="btn btn-primary btn-sm" id="btn-add-size-item">➕ Razmer qo'shish</button>
+    </div>
+    <div style="max-height: 450px; overflow: auto; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
+      <table class="history-table">
+        <thead>
+          <tr>
+            <th>№</th>
+            <th>Razmer (O'lcham)</th>
+            <th>Holat</th>
+            <th style="width: 80px; text-align: center;">Amal</th>
+          </tr>
+        </thead>
+        <tbody>
+  `;
+  list.forEach((sz, i) => {
+    html += `
+      <tr>
+        <td>${i + 1}</td>
+        <td><span class="kbd" style="font-size: 0.95rem; font-weight: 700; color: #38bdf8;">${sz.name}</span></td>
+        <td><span class="badge badge-synced">✅ Faol</span></td>
+        <td style="text-align: center;">
+          <button class="btn-icon delete" title="O'chirish" onclick="deleteSizeItem(${sz.id})">🗑️</button>
+        </td>
+      </tr>
+    `;
+  });
+  html += `</tbody></table></div>`;
+  container.innerHTML = html;
+
+  document.getElementById('btn-add-size-item')?.addEventListener('click', async () => {
+    const name = document.getElementById('new-size-name').value.trim();
+    if (!name) return alert("Razmer nomini kiriting!");
+    const res = await fetch('/api/references/size-item', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+    if (res.ok) {
+      await References.init();
+      renderReferencesUI('ref-sizes');
+      showToast("Razmer muvaffaqiyatli qo'shildi!", "success");
+    }
+  });
+}
+
+// 6. Brands Subtab
+function renderBrandsSubtab(container) {
+  const list = References.data.brands || [];
+  let html = `
+    <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+      <input type="text" id="new-brand-name" class="form-control" placeholder="Yangi brend nomi..." style="max-width: 250px;">
+      <button class="btn btn-primary btn-sm" id="btn-add-brand-ref">➕ Brend qo'shish</button>
+    </div>
+    <div style="max-height: 450px; overflow: auto; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
+      <table class="history-table">
+        <thead>
+          <tr>
+            <th>№</th>
+            <th>Brend Nomi</th>
+            <th>Holat</th>
+          </tr>
+        </thead>
+        <tbody>
+  `;
+  list.forEach((b, i) => {
+    html += `
+      <tr>
+        <td>${i + 1}</td>
+        <td><b>${b.name}</b></td>
+        <td><span class="badge badge-synced">✅ Faol</span></td>
+      </tr>
+    `;
+  });
+  html += `</tbody></table></div>`;
+  container.innerHTML = html;
+
+  document.getElementById('btn-add-brand-ref')?.addEventListener('click', async () => {
+    const name = document.getElementById('new-brand-name').value.trim();
+    if (!name) return alert("Brend nomini kiriting!");
+    const res = await fetch('/api/references/brand', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+    if (res.ok) {
+      await References.init();
+      renderReferencesUI('ref-brands');
+      showToast("Brend muvaffaqiyatli qo'shildi!", "success");
+    }
+  });
+}
+
+// 7. Colors Subtab
+function renderColorsSubtab(container) {
+  const list = References.data.colors || [];
+  let html = `
+    <div style="max-height: 450px; overflow: auto; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
+      <table class="history-table">
+        <thead>
+          <tr>
+            <th>№ Kod</th>
+            <th>Rang Nomi</th>
+            <th>Holat</th>
+          </tr>
+        </thead>
+        <tbody>
+  `;
+  list.forEach((c) => {
+    html += `
+      <tr>
+        <td><span class="kbd">${c.code_no || '-'}</span></td>
+        <td><b>${c.name}</b></td>
+        <td><span class="badge badge-synced">✅ Faol</span></td>
+      </tr>
+    `;
+  });
+  html += `</tbody></table></div>`;
+  container.innerHTML = html;
+}
+
+// 8. Countries Subtab
+function renderCountriesSubtab(container) {
+  const list = References.data.countries || [];
+  let html = `
+    <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+      <input type="text" id="new-country-name" class="form-control" placeholder="Yangi mamlakat..." style="max-width: 250px;">
+      <button class="btn btn-primary btn-sm" id="btn-add-country-ref">➕ Mamlakat qo'shish</button>
+    </div>
+    <div style="max-height: 450px; overflow: auto; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
+      <table class="history-table">
+        <thead>
+          <tr>
+            <th>№</th>
+            <th>Mamlakat Nomi</th>
+            <th>Holat</th>
+          </tr>
+        </thead>
+        <tbody>
+  `;
+  list.forEach((cnt, i) => {
+    html += `
+      <tr>
+        <td>${i + 1}</td>
+        <td><b>${cnt.name}</b></td>
+        <td><span class="badge badge-synced">✅ Faol</span></td>
+      </tr>
+    `;
+  });
+  html += `</tbody></table></div>`;
+  container.innerHTML = html;
+
+  document.getElementById('btn-add-country-ref')?.addEventListener('click', async () => {
+    const name = document.getElementById('new-country-name').value.trim();
+    if (!name) return alert("Mamlakat nomini kiriting!");
+    const res = await fetch('/api/references/country', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+    if (res.ok) {
+      await References.init();
+      renderReferencesUI('ref-countries');
+      showToast("Mamlakat muvaffaqiyatli qo'shildi!", "success");
+    }
+  });
+}
+
+// ================= CRUD MODAL HANDLERS =================
+function openProductTypeAddModal() {
+  const modal = document.getElementById('modal-pt-edit');
+  document.getElementById('pt-modal-title').textContent = "➕ Yangi Mahsulot turi & Ierarxiya";
+  document.getElementById('pt-edit-id').value = "";
+  document.getElementById('pt-edit-name').value = "";
+  document.getElementById('pt-edit-category').value = "";
+
+  populateGroupSelect();
+  populateCategoryDatalist();
+  if (modal) modal.classList.add('active');
+}
+
+function openProductTypeEditModal(id) {
+  const pt = (References.data.product_types || []).find(p => p.id === id);
+  if (!pt) return;
+
+  const modal = document.getElementById('modal-pt-edit');
+  document.getElementById('pt-modal-title').textContent = "✏️ Mahsulot turini tahrirlash";
+  document.getElementById('pt-edit-id').value = pt.id;
+  document.getElementById('pt-edit-name').value = pt.name;
+  document.getElementById('pt-edit-category').value = pt.category || "";
+
+  populateGroupSelect(pt.group);
+  populateCategoryDatalist();
+  if (modal) modal.classList.add('active');
+}
+
+function populateGroupSelect(selectedGroup = "") {
+  const groupSelect = document.getElementById('pt-edit-group');
+  if (!groupSelect) return;
+  const groups = References.data.groups || [];
+  groupSelect.innerHTML = `<option value="">Guruhni tanlang...</option>` +
+    groups.map(g => `<option value="${g.name}" ${g.name === selectedGroup ? 'selected' : ''}>${g.name} (${g.code})</option>`).join('');
+}
+
+function populateCategoryDatalist() {
+  const dl = document.getElementById('dl-all-categories');
+  if (!dl) return;
+  const cats = References.data.categories || [];
+  dl.innerHTML = cats.map(c => `<option value="${c.name}"></option>`).join('');
+}
+
+async function deleteProductTypeItem(id, name) {
+  if (!confirm(`Haqiqatan ham "${name}" mahsulot turini o'chirmoqchimisiz?`)) return;
+  try {
+    const res = await fetch(`/api/references/product-type/${id}`, { method: 'DELETE' });
+    if (res.ok) {
+      await References.init();
+      renderReferencesUI('ref-product-types');
+      showToast(`"${name}" o'chirildi!`, "info");
+    }
+  } catch (e) {
+    showToast("O'chirishda xatolik yuz berdi", "error");
+  }
+}
+
+async function deleteSeasonTypeItem(id) {
+  if (!confirm("Ushbu sezonni o'chirmoqchimisiz?")) return;
+  const res = await fetch(`/api/references/season-type/${id}`, { method: 'DELETE' });
+  if (res.ok) {
+    await References.init();
+    renderReferencesUI('ref-season-types');
+    showToast("Sezon o'chirildi", "info");
+  }
+}
+
+async function deleteSizeItem(id) {
+  if (!confirm("Ushbu razmerni o'chirmoqchimisiz?")) return;
+  const res = await fetch(`/api/references/size-item/${id}`, { method: 'DELETE' });
+  if (res.ok) {
+    await References.init();
+    renderReferencesUI('ref-sizes');
+    showToast("Razmer o'chirildi", "info");
+  }
+}
