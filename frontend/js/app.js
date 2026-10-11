@@ -1,15 +1,36 @@
 // Main Application Controller
 document.addEventListener('DOMContentLoaded', async () => {
+  // 0. Setup Theme Toggle (Dark & Light Mode)
+  setupThemeToggle();
+
   // 1. Setup UI tabs and buttons immediately
   setupNavigationTabs();
   setupMainButtons();
   setupQuickAddModals();
+  setupAdminDropdown();
   AIScanner.init();
 
-  // 2. Load MoySklad metadata & next document number concurrently
+  // 2. Initialize Dashboard & Supplies
+  try {
+    if (typeof Dashboard !== 'undefined') {
+      await Dashboard.init();
+    }
+  } catch (e) {
+    console.error("Dashboard init error:", e);
+  }
+
+  try {
+    if (typeof SuppliesList !== 'undefined') {
+      await SuppliesList.init();
+    }
+  } catch (e) {
+    console.error("SuppliesList init error:", e);
+  }
+
+  // 3. Load MoySklad metadata concurrently
   loadMoySkladMetadata();
 
-  // 3. Initialize References and Grid
+  // 4. Initialize References and Grid
   try {
     await References.init();
   } catch (e) {
@@ -44,18 +65,30 @@ function showToast(message, type = 'info') {
   }, 4000);
 }
 
-// MoySklad metadata & status & next doc number
-async function loadMoySkladMetadata() {
+// MoySklad metadata & status & next doc number with in-memory caching
+let _cachedMsStores = null;
+let _cachedMsCounterparties = null;
+let _cachedMsStatus = null;
+
+async function loadMoySkladMetadata(options = {}) {
+  const { force = false, skipNextDocNumber = false } = options;
   const statusDot = document.getElementById('ms-status-dot');
   const statusText = document.getElementById('ms-status-text');
   const settingsStatus = document.getElementById('settings-ms-status');
   const settingsOrg = document.getElementById('settings-ms-org');
 
   try {
-    const statusResp = await fetch('/api/moysklad/status');
-    const statusData = await statusResp.json();
+    // 1. Status (use cache if available and not forced)
+    let statusData = _cachedMsStatus;
+    if (!statusData || force) {
+      const statusResp = await fetch('/api/moysklad/status');
+      if (statusResp.ok) {
+        statusData = await statusResp.json();
+        _cachedMsStatus = statusData;
+      }
+    }
 
-    if (statusData.status === 'connected') {
+    if (statusData && statusData.status === 'connected') {
       if (statusDot) statusDot.className = 'status-dot';
       if (statusText) statusText.textContent = `MoySklad: ${statusData.organization_name || 'Ulandi'}`;
       if (settingsStatus) {
@@ -63,7 +96,7 @@ async function loadMoySkladMetadata() {
         settingsStatus.className = 'badge badge-synced';
       }
       if (settingsOrg) settingsOrg.textContent = statusData.organization_name || 'DE LUXURY';
-    } else {
+    } else if (statusData) {
       if (statusDot) statusDot.className = 'status-dot disconnected';
       if (statusText) statusText.textContent = 'MoySklad: Ulanmadi';
       if (settingsStatus) {
@@ -72,26 +105,36 @@ async function loadMoySkladMetadata() {
       }
     }
 
-    // Load Stores (Omborlar)
-    const storeResp = await fetch('/api/moysklad/stores');
-    if (storeResp.ok) {
-      const stores = await storeResp.json();
+    // 2. Load Stores (Omborlar) - Cached
+    let stores = _cachedMsStores;
+    if (!stores || force) {
+      const storeResp = await fetch('/api/moysklad/stores');
+      if (storeResp.ok) {
+        stores = await storeResp.json();
+        _cachedMsStores = stores;
+      }
+    }
+    if (stores && stores.length > 0) {
       const storeSelect = document.getElementById('header-store');
       if (storeSelect) {
+        const curVal = storeSelect.value;
         storeSelect.innerHTML = stores.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+        if (curVal) storeSelect.value = curVal;
       }
     }
 
-    // Load Counterparties (Yetkazib beruvchilar) — default empty
-    await reloadCounterpartiesDropdown();
+    // 3. Load Counterparties (Yetkazib beruvchilar) - Cached
+    await reloadCounterpartiesDropdown(null, force);
 
-    // Load Next 5-digit Document Number (e.g. 00035)
-    const nextNumResp = await fetch('/api/moysklad/next-doc-number');
-    if (nextNumResp.ok) {
-      const nextData = await nextNumResp.json();
-      const docInput = document.getElementById('header-doc-number');
-      if (docInput && (!docInput.value || docInput.value.startsWith('PRX-'))) {
-        docInput.value = nextData.next_number || '00035';
+    // 4. Load Next 5-digit Document Number (ONLY when creating new, NOT when opening draft)
+    if (!skipNextDocNumber) {
+      const nextNumResp = await fetch('/api/moysklad/next-doc-number');
+      if (nextNumResp.ok) {
+        const nextData = await nextNumResp.json();
+        const docInput = document.getElementById('header-doc-number');
+        if (docInput && nextData.next_number) {
+          docInput.value = nextData.next_number;
+        }
       }
     }
 
@@ -102,10 +145,16 @@ async function loadMoySkladMetadata() {
   }
 }
 
-async function reloadCounterpartiesDropdown(selectedId = null) {
-  const cpResp = await fetch('/api/moysklad/counterparties');
-  if (cpResp.ok) {
-    const counterparties = await cpResp.json();
+async function reloadCounterpartiesDropdown(selectedId = null, force = false) {
+  let counterparties = _cachedMsCounterparties;
+  if (!counterparties || force) {
+    const cpResp = await fetch('/api/moysklad/counterparties');
+    if (cpResp.ok) {
+      counterparties = await cpResp.json();
+      _cachedMsCounterparties = counterparties;
+    }
+  }
+  if (counterparties) {
     const cpSelect = document.getElementById('header-counterparty');
     if (cpSelect) {
       let html = `<option value="">Tanlang...</option>`;
@@ -114,6 +163,41 @@ async function reloadCounterpartiesDropdown(selectedId = null) {
       `).join('');
       cpSelect.innerHTML = html;
     }
+  }
+}
+
+// Theme Toggle Engine (Dark Mode & Light Mode with Side-by-Side Sun & Moon)
+function setupThemeToggle() {
+  const currentTheme = localStorage.getItem('deluxury_theme') || 'dark';
+  setTheme(currentTheme === 'light');
+
+  const btnDark = document.getElementById('btn-theme-dark');
+  const btnLight = document.getElementById('btn-theme-light');
+
+  if (btnDark) {
+    btnDark.addEventListener('click', () => setTheme(false));
+  }
+  if (btnLight) {
+    btnLight.addEventListener('click', () => setTheme(true));
+  }
+}
+
+function setTheme(isLight) {
+  if (isLight) {
+    document.body.classList.add('theme-light');
+    localStorage.setItem('deluxury_theme', 'light');
+  } else {
+    document.body.classList.remove('theme-light');
+    localStorage.setItem('deluxury_theme', 'dark');
+  }
+
+  const btnDark = document.getElementById('btn-theme-dark');
+  const btnLight = document.getElementById('btn-theme-light');
+  if (btnDark) btnDark.classList.toggle('active', !isLight);
+  if (btnLight) btnLight.classList.toggle('active', isLight);
+
+  if (typeof Dashboard !== 'undefined' && Dashboard.renderCharts) {
+    Dashboard.renderCharts();
   }
 }
 
@@ -133,8 +217,13 @@ function setupNavigationTabs() {
       document.getElementById(targetId)?.classList.add('active');
 
       // Lazy load tab contents
-      if (targetId === 'tab-history') {
-        History.load();
+      if (targetId === 'tab-dashboard') {
+        if (typeof Dashboard !== 'undefined') Dashboard.loadStats();
+      } else if (targetId === 'tab-supplies') {
+        if (typeof SuppliesList !== 'undefined') {
+          SuppliesList.closeGridReceiptView();
+          SuppliesList.loadSupplies();
+        }
       } else if (targetId === 'tab-references') {
         renderReferencesUI('ref-product-types');
       }
@@ -166,6 +255,34 @@ function setupMainButtons() {
   document.getElementById('header-currency')?.addEventListener('change', () => {
     Grid.updateStats();
     Grid.render();
+  });
+
+  // Quick sync button from navbar
+  document.getElementById('btn-quick-sync')?.addEventListener('click', async () => {
+    showToast("🔄 MoySklad bilan ma'lumotlar yangilanmoqda...", "info");
+    if (typeof Dashboard !== 'undefined') {
+      await Dashboard.loadStats(true);
+    }
+    if (typeof SuppliesList !== 'undefined') {
+      await SuppliesList.loadSupplies();
+    }
+    showToast("✅ MoySklad bilan muvaffaqiyatli sinxronlandi!", "success");
+  });
+
+  // Quick action from dashboard/navbar to open new receipt
+  document.getElementById('btn-quick-new-receipt')?.addEventListener('click', () => {
+    document.querySelector('[data-tab="tab-supplies"]')?.click();
+    if (typeof SuppliesList !== 'undefined') {
+      SuppliesList.openGridReceiptView();
+    }
+  });
+
+  // Quick link from dashboard to view all supplies
+  document.getElementById('btn-view-all-supplies-link')?.addEventListener('click', () => {
+    document.querySelector('[data-tab="tab-supplies"]')?.click();
+    if (typeof SuppliesList !== 'undefined') {
+      SuppliesList.closeGridReceiptView();
+    }
   });
 
   // Add row
@@ -359,7 +476,8 @@ function setupMainButtons() {
       store_name: document.getElementById('header-store')?.selectedOptions[0]?.text || '',
       counterparty_id: document.getElementById('header-counterparty')?.value,
       counterparty_name: document.getElementById('header-counterparty')?.selectedOptions[0]?.text || '',
-      currency: document.getElementById('header-currency')?.value || 'UZS'
+      currency: document.getElementById('header-currency')?.value || 'UZS',
+      draft_id: Grid.activeDraftId
     };
 
     try {
@@ -400,14 +518,24 @@ function setupMainButtons() {
 
         successModal.classList.add('active');
 
-        // Reset Grid & refresh next doc number
+        // Reset Grid (1 row) & refresh next doc number & clear counterparty & reset active draft
+        Grid.activeDraftId = null;
         Grid.rows = [];
-        Grid.addEmptyRows(5);
+        Grid.addEmptyRows(1);
         await Grid.fetchBaseCounter();
+        Grid.recalculateAll();
+        Grid.render();
+
+        const cpSelect = document.getElementById('header-counterparty');
+        if (cpSelect) cpSelect.value = '';
+
         const nextNumResp = await fetch('/api/moysklad/next-doc-number');
         if (nextNumResp.ok) {
           const nextData = await nextNumResp.json();
-          document.getElementById('header-doc-number').value = nextData.next_number || '00035';
+          const docInput = document.getElementById('header-doc-number');
+          if (docInput && nextData.next_number) {
+            docInput.value = nextData.next_number;
+          }
         }
       } else {
         alert(data.detail || data.message || "MoySklad'ga yuborishda xatolik yuz berdi");
@@ -423,10 +551,22 @@ function setupMainButtons() {
   // Start new receipt button in success modal
   document.getElementById('btn-start-new-receipt')?.addEventListener('click', async () => {
     document.getElementById('modal-success').classList.remove('active');
+    Grid.rows = [];
+    Grid.addEmptyRows(1);
+    await Grid.fetchBaseCounter();
+    Grid.recalculateAll();
+    Grid.render();
+
+    const cpSelect = document.getElementById('header-counterparty');
+    if (cpSelect) cpSelect.value = '';
+
     const nextNumResp = await fetch('/api/moysklad/next-doc-number');
     if (nextNumResp.ok) {
       const nextData = await nextNumResp.json();
-      document.getElementById('header-doc-number').value = nextData.next_number || '00035';
+      const docInput = document.getElementById('header-doc-number');
+      if (docInput && nextData.next_number) {
+        docInput.value = nextData.next_number;
+      }
     }
   });
 }
@@ -436,38 +576,65 @@ function setupQuickAddModals() {
   // 1. Quick Add Counterparty
   const modalCp = document.getElementById('modal-quick-cp');
   document.getElementById('btn-quick-add-cp')?.addEventListener('click', () => {
-    document.getElementById('cp-new-name').value = '';
-    document.getElementById('cp-new-phone').value = '';
-    document.getElementById('cp-new-desc').value = '';
-    if (modalCp) modalCp.classList.add('active');
+    const nameEl = document.getElementById('modal-cp-name');
+    const phoneEl = document.getElementById('modal-cp-phone');
+    const groupEl = document.getElementById('modal-cp-group');
+    const descEl = document.getElementById('modal-cp-desc');
+    if (nameEl) nameEl.value = '';
+    if (phoneEl) phoneEl.value = '';
+    if (groupEl) groupEl.value = '';
+    if (descEl) descEl.value = '';
+    if (modalCp) {
+      modalCp.classList.add('active');
+      setTimeout(() => nameEl?.focus(), 50);
+    }
   });
 
-  document.getElementById('btn-close-cp-modal')?.addEventListener('click', () => modalCp.classList.remove('active'));
-  document.getElementById('btn-cancel-cp')?.addEventListener('click', () => modalCp.classList.remove('active'));
+  document.getElementById('btn-close-cp-modal')?.addEventListener('click', () => modalCp?.classList.remove('active'));
+  document.getElementById('btn-cancel-cp')?.addEventListener('click', () => modalCp?.classList.remove('active'));
 
-  document.getElementById('btn-save-new-cp')?.addEventListener('click', async () => {
-    const name = document.getElementById('cp-new-name').value.trim();
-    if (!name) return alert("Kontragent nomini kiriting!");
-    const phone = document.getElementById('cp-new-phone').value.trim();
-    const desc = document.getElementById('cp-new-desc').value.trim();
+  document.getElementById('btn-save-cp')?.addEventListener('click', async () => {
+    const name = document.getElementById('modal-cp-name')?.value.trim();
+    if (!name) return alert("Yetkazib beruvchi nomini kiriting!");
+    const phone = document.getElementById('modal-cp-phone')?.value.trim();
+    const group = document.getElementById('modal-cp-group')?.value.trim();
+    const desc = document.getElementById('modal-cp-desc')?.value.trim();
+
+    const saveBtn = document.getElementById('btn-save-cp');
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.textContent = "Saqlanmoqda...";
+    }
 
     try {
       const resp = await fetch('/api/moysklad/counterparties', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, phone, description: desc })
+        body: JSON.stringify({ name, phone, group, description: desc })
       });
       const data = await resp.json();
       if (resp.ok && data.status === 'created') {
-        modalCp.classList.remove('active');
+        modalCp?.classList.remove('active');
         const createdId = data.counterparty?.id;
         await reloadCounterpartiesDropdown(createdId);
+        const headerCp = document.getElementById('header-counterparty');
+        if (headerCp && createdId) {
+          headerCp.value = createdId;
+        }
+        if (typeof SuppliesList !== 'undefined') {
+          SuppliesList.loadSupplies();
+        }
         showToast(`✅ "${name}" MoySklad'da muvaffaqiyatli yaratildi va tanlandi!`, "success");
       } else {
         alert(data.message || "Kontragent yaratishda xatolik yuz berdi");
       }
     } catch (e) {
       alert("Tarmoq xatosi yuz berdi");
+    } finally {
+      if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = "<span>💾</span> MoySklad'da yaratish";
+      }
     }
   });
 
@@ -562,6 +729,63 @@ function setupQuickAddModals() {
       btn.disabled = false;
       btn.textContent = "🚀 Import qilish";
       alert("Faylni yuklashda xatolik yuz berdi.");
+    }
+  });
+}
+
+// Administrator Profile Dropdown Menu Controller
+function setupAdminDropdown() {
+  const badge = document.getElementById('user-profile-badge');
+  const dropdown = document.getElementById('admin-dropdown-menu');
+  if (!badge || !dropdown) return;
+
+  badge.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isVisible = dropdown.style.display === 'block';
+    dropdown.style.display = isVisible ? 'none' : 'block';
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!dropdown.contains(e.target) && !badge.contains(e.target)) {
+      dropdown.style.display = 'none';
+    }
+  });
+
+  // 1. Tizim sozlamalari
+  document.getElementById('admin-menu-settings')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    dropdown.style.display = 'none';
+    document.querySelector('.nav-tab[data-tab="tab-settings"]')?.click();
+  });
+
+  // 2. MoySklad sinxronlash
+  document.getElementById('admin-menu-sync')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    dropdown.style.display = 'none';
+    document.getElementById('btn-quick-sync')?.click();
+  });
+
+  // 3. Artikul / Kod Sanagichi
+  document.getElementById('admin-menu-counter')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    dropdown.style.display = 'none';
+    document.querySelector('.nav-tab[data-tab="tab-settings"]')?.click();
+    setTimeout(() => {
+      const counterInput = document.getElementById('settings-articul-counter');
+      if (counterInput) {
+        counterInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        counterInput.focus();
+        counterInput.select();
+      }
+    }, 150);
+  });
+
+  // 4. Chiqish
+  document.getElementById('admin-menu-logout')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    dropdown.style.display = 'none';
+    if (confirm("Haqiqatan ham tizimdan chiqmoqchimisiz?")) {
+      showToast("👋 Tizimdan chiqildi", "info");
     }
   });
 }

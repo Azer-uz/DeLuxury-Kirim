@@ -3,15 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DE LUXURY — Kirim (Приемка) & Manbalar Tizimi</title>
+  <title>DE LUXURY — Kirim & Ta'minot Hub</title>
   
   <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   
+  <!-- Chart.js for High-End Dashboard Analytics -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
   <!-- Main CSS -->
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/style.css?v=2.6">
 </head>
 <body>
 
@@ -19,15 +22,16 @@
   <header class="navbar">
     <div class="nav-brand">
       <div class="brand-badge">DE LUXURY</div>
-      <div class="brand-title">Kirim & Prikhod Studio</div>
+      <div class="brand-title">Kirim & Ta'minot Hub</div>
     </div>
 
+    <!-- Main Navigation Tabs -->
     <nav class="nav-tabs">
-      <button class="nav-tab active" data-tab="tab-grid">
-        <span>📦</span> Yangi Kirim (Grid)
+      <button class="nav-tab active" data-tab="tab-dashboard">
+        <span>📊</span> Dashboard
       </button>
-      <button class="nav-tab" data-tab="tab-history">
-        <span>📋</span> Kirimlar Tarixi
+      <button class="nav-tab" data-tab="tab-supplies">
+        <span>📋</span> Kirimlar
       </button>
       <button class="nav-tab" data-tab="tab-references">
         <span>📚</span> Manbalar
@@ -37,10 +41,55 @@
       </button>
     </nav>
 
+    <!-- Top Right Controls: Quick Sync, New Supply, Theme Switcher, User Profile -->
     <div class="nav-status">
-      <div class="connection-pill" id="moysklad-pill">
-        <span class="status-dot" id="ms-status-dot"></span>
-        <span id="ms-status-text">MoySklad: Tekshirilmoqda...</span>
+      <!-- Quick Sync Button -->
+      <button class="btn btn-secondary btn-sm" id="btn-quick-sync" title="MoySklad bilan ma'lumotlarni yangilash" style="padding: 0.35rem 0.75rem; font-size: 0.8rem; border-radius: var(--radius-sm);">
+        <span>🔄</span> Sinxron
+      </button>
+
+      <!-- Quick New Supply Button -->
+      <button class="btn btn-gold btn-sm" id="btn-quick-new-receipt" title="Yangi Priyomka Hujjati ochish" style="padding: 0.35rem 0.85rem; font-size: 0.8rem; border-radius: var(--radius-sm); font-weight: 700;">
+        <span>➕</span> Yangi Kirim
+      </button>
+
+      <!-- Side-by-Side Sun & Moon Theme Switch Pill -->
+      <div class="theme-switch-pill" id="theme-switch-pill" title="Mavzuni almashtirish (Tungi / Kunduzgi)">
+        <button class="theme-icon-btn active" id="btn-theme-dark" title="Tungi rejim">🌙</button>
+        <button class="theme-icon-btn" id="btn-theme-light" title="Kunduzgi rejim">☀️</button>
+      </div>
+
+      <!-- User Profile Badge (Administrator) with Saidbaraka-style Dropdown -->
+      <div class="user-profile-badge-wrapper" style="position: relative;">
+        <div class="user-profile-badge" id="user-profile-badge" style="cursor: pointer;" title="Administrator menyusi">
+          <div class="user-avatar">A</div>
+          <div class="user-info">
+            <span class="user-name">Administrator</span>
+            <span class="user-role">DE LUXURY ▾</span>
+          </div>
+        </div>
+
+        <!-- Luxury Administrator Dropdown Menu -->
+        <div class="admin-dropdown-menu" id="admin-dropdown-menu" style="display: none;">
+          <div class="admin-dropdown-header">
+            <div style="font-weight: 700; color: #fbbf24; font-size: 0.88rem;">Administrator</div>
+            <div style="font-size: 0.72rem; color: var(--text-dim); margin-top: 1px;">Boshqaruvchi • DE LUXURY</div>
+          </div>
+          <div class="admin-dropdown-divider"></div>
+          <a href="#" class="admin-dropdown-item" id="admin-menu-settings">
+            <span>⚙️</span> Tizim Sozlamalari
+          </a>
+          <a href="#" class="admin-dropdown-item" id="admin-menu-sync">
+            <span>🔄</span> MoySklad Sinxronlash
+          </a>
+          <a href="#" class="admin-dropdown-item" id="admin-menu-counter">
+            <span>🔢</span> Artikul / Kod Sanagichi
+          </a>
+          <div class="admin-dropdown-divider"></div>
+          <a href="#" class="admin-dropdown-item admin-dropdown-logout" id="admin-menu-logout" style="color: #f87171;">
+            <span>🚪</span> Chiqish (Tizimdan)
+          </a>
+        </div>
       </div>
     </div>
   </header>
@@ -48,216 +97,610 @@
   <!-- Main Container -->
   <main class="app-container">
 
-    <!-- TAB 1: MAIN EXCEL-LIKE RECEIPT GRID -->
-    <section id="tab-grid" class="tab-content active">
-      
-      <!-- Document Header Details -->
-      <div class="doc-header-card">
-        <div class="doc-header-top">
-          <div class="doc-title-group">
-            <h2>Yangi Tovarlar Qabuli (Приемка)</h2>
-            <div class="auto-save-indicator" id="auto-save-badge">
-              <span>💾</span> <span id="save-status">Loyiha tayyor</span>
+    <!-- =========================================================
+         TAB 1: EXECUTIVE DASHBOARD (LUXURY OBSIDIAN & CHAMPAGNE GOLD)
+         ========================================================= -->
+    <section id="tab-dashboard" class="tab-content active">
+      <div class="dashboard-container">
+
+        <!-- Sticky Date & Counterparty Filter Bar (Saidbaraka Style) -->
+        <div class="dashboard-filter-bar" id="dashboard-filter-bar">
+          <div class="filter-bar-left">
+            <!-- Preset Period Chips -->
+            <div class="quick-filter-chips">
+              <button class="filter-chip active" data-period="today">Bugun</button>
+              <button class="filter-chip" data-period="yesterday">Kecha</button>
+              <button class="filter-chip" data-period="week">Hafta</button>
+              <button class="filter-chip" data-period="month">Oy</button>
+              <button class="filter-chip" data-period="all">Hammasi</button>
+            </div>
+
+            <!-- Date Stepper (◀ Label ▶) -->
+            <div class="date-stepper-box">
+              <button class="stepper-btn" id="btn-date-prev" title="Oldingi kun/davr">◀</button>
+              <span class="stepper-label" id="stepper-date-label">11-Oktabr 2026</span>
+              <button class="stepper-btn" id="btn-date-next" title="Keyingi kun/davr">▶</button>
+            </div>
+
+            <!-- Date Range Selector -->
+            <div class="date-range-box">
+              <input type="date" id="dash-filter-from" class="date-range-input" title="Boshlanish sanasi">
+              <span class="date-range-separator">—</span>
+              <input type="date" id="dash-filter-to" class="date-range-input" title="Tugash sanasi">
+            </div>
+
+            <!-- Counterparty Multi-Select Filter Dropdown -->
+            <div class="cp-filter-dropdown" id="cp-filter-dropdown">
+              <button type="button" class="cp-filter-btn" id="btn-cp-filter-toggle">
+                <span>🏢</span>
+                <span id="cp-filter-label">Yetkazib beruvchi: Barchasi</span>
+                <span class="cp-filter-arrow">▾</span>
+              </button>
+              <div class="cp-filter-menu" id="cp-filter-menu" style="display: none;">
+                <div class="cp-filter-search-box">
+                  <input type="text" id="cp-filter-search-input" placeholder="Yetkazib beruvchi qidiruvi..." class="cp-filter-search-input" autocomplete="off">
+                </div>
+                <div class="cp-filter-actions">
+                  <button type="button" class="cp-filter-action-link" id="btn-cp-select-all">Hammasi</button>
+                  <span style="color: var(--text-dim); font-size: 0.75rem;">|</span>
+                  <button type="button" class="cp-filter-action-link" id="btn-cp-clear-all">Tozalash</button>
+                </div>
+                <div class="cp-filter-list" id="cp-filter-list">
+                  <!-- Checkbox items populated dynamically -->
+                </div>
+              </div>
             </div>
           </div>
-          <div class="header-actions">
-            <button class="btn btn-ai" id="btn-open-ai-modal">
-              <span>✨</span> AI Rasm / Nakladnaya yuklash
-            </button>
-            <button class="btn btn-secondary" id="btn-save-draft">
-              <span>💾</span> Qoralamani saqlash
-            </button>
-            <button class="btn btn-secondary" id="btn-clear-grid">
-              <span>🗑️</span> Tozalash
-            </button>
+
+          <!-- Right: Localized Weekday & Date -->
+          <div class="filter-bar-right">
+            <span class="full-date-display" id="full-date-display">Yakshanba, 11-Oktabr 2026-yil</span>
           </div>
         </div>
 
-        <div class="form-grid-header">
-          <div class="form-group">
-            <label class="form-label">Sana</label>
-            <input type="datetime-local" class="form-control" id="header-date">
+        <!-- 6 Luxury KPI Cards Grid -->
+        <div class="dashboard-kpi-grid">
+          <!-- 1. Total Supplies (Kirimlar) -->
+          <div class="kpi-card kpi-gold">
+            <div class="kpi-card-top">
+              <span class="kpi-title">Jami Kirimlar</span>
+              <div class="kpi-icon-pill" style="font-size: 1.1rem; font-weight: 800; color: #fbbf24;">↗</div>
+            </div>
+            <div class="kpi-value" id="kpi-total-supplies">Yuklanmoqda...</div>
+            <div class="kpi-subtext">
+              <span id="kpi-total-supplies-sub">—</span>
+              <span style="color: #34d399; font-weight: 700;">↗ Faol</span>
+            </div>
           </div>
-          <div class="form-group">
-            <label class="form-label">Приемка № (Hujjat raqami)</label>
-            <input type="text" class="form-control" id="header-doc-number" placeholder="00035" style="font-family: 'JetBrains Mono', monospace; font-weight: 700; color: #fbbf24;">
+
+          <!-- 2. Paid Amount (To'langan) -->
+          <div class="kpi-card kpi-green">
+            <div class="kpi-card-top">
+              <span class="kpi-title">To'langan Summa</span>
+              <div class="kpi-icon-pill">💵</div>
+            </div>
+            <div class="kpi-value" id="kpi-total-paid">Yuklanmoqda...</div>
+            <div class="kpi-subtext">
+              <span id="kpi-total-paid-sub">—</span>
+              <span style="color: #34d399; font-weight: 600;">Kassadan chiqim</span>
+            </div>
           </div>
-          <div class="form-group">
-            <label class="form-label">Ombor (Склад MoySklad)</label>
-            <select class="form-control" id="header-store">
-              <option value="">Yuklanmoqda...</option>
-            </select>
+
+          <!-- 3. Our Debt (Qarzlarimiz) -->
+          <div class="kpi-card kpi-amber">
+            <div class="kpi-card-top">
+              <span class="kpi-title">Qarzlarimiz</span>
+              <div class="kpi-icon-pill">⏳</div>
+            </div>
+            <div class="kpi-value" id="kpi-total-debt" style="color: #f87171;">Yuklanmoqda...</div>
+            <div class="kpi-subtext">
+              <span id="kpi-total-debt-sub">—</span>
+              <span style="color: #f87171; font-weight: 600;">Kreditor qarz</span>
+            </div>
           </div>
-          <div class="form-group">
-            <label class="form-label">Yetkazib beruvchi (Контрагент)</label>
-            <div style="display: flex; gap: 0.35rem; align-items: center;">
-              <select class="form-control" id="header-counterparty" style="flex: 1;">
-                <option value="">Tanlang...</option>
-              </select>
-              <button class="btn btn-secondary" id="btn-quick-add-cp" title="Yangi Kontragent qo'shish" style="padding: 0.55rem 0.75rem; font-size: 1rem; font-weight: 700; color: #38bdf8;">
-                +
+
+          <!-- 4. Total Batches (Partiyalar soni) -->
+          <div class="kpi-card kpi-blue">
+            <div class="kpi-card-top">
+              <span class="kpi-title">Jami Partiyalar</span>
+              <div class="kpi-icon-pill">📑</div>
+            </div>
+            <div class="kpi-value" id="kpi-total-batches">Yuklanmoqda...</div>
+            <div class="kpi-subtext">
+              <span id="kpi-total-batches-sub">—</span>
+              <span style="color: #60a5fa; font-weight: 600;">MoySklad Priyomka</span>
+            </div>
+          </div>
+
+          <!-- 5. Total Stock Qty (Qoldiq Miqdori) -->
+          <div class="kpi-card kpi-purple">
+            <div class="kpi-card-top">
+              <span class="kpi-title">Qoldiq Miqdori</span>
+              <div class="kpi-icon-pill">📦</div>
+            </div>
+            <div class="kpi-value" id="kpi-total-stock-qty">Yuklanmoqda...</div>
+            <div class="kpi-subtext">
+              <span id="kpi-total-stock-qty-sub">Omborlarda mavjud</span>
+              <span style="color: #a855f7; font-weight: 600;">Qoldiq</span>
+            </div>
+          </div>
+
+          <!-- 6. Total Stock Sum (Qoldiq Summasi) -->
+          <div class="kpi-card kpi-cyan">
+            <div class="kpi-card-top">
+              <span class="kpi-title">Qoldiq Summasi</span>
+              <div class="kpi-icon-pill">💎</div>
+            </div>
+            <div class="kpi-value" id="kpi-total-stock-sum">Yuklanmoqda...</div>
+            <div class="kpi-subtext">
+              <span id="kpi-total-stock-sum-sub">Tannarx balansi</span>
+              <span style="color: #06b6d4; font-weight: 600;">Balans</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Analytics Row (Equal Width Spline Dynamics & Category Breakdown) -->
+        <div class="dashboard-analytics-row">
+          <!-- Procurement Dynamics Spline Chart -->
+          <div class="chart-card">
+            <div class="chart-card-header">
+              <div class="chart-card-title">
+                <span>📈</span> <span id="dynamics-chart-title">Kirimlar Dinamikasi (Kunlik hajm)</span>
+              </div>
+              <span id="dynamics-unit-badge" style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">Mln so'm / kun</span>
+            </div>
+            <div class="chart-container-dynamics">
+              <canvas id="chart-procurement-dynamics"></canvas>
+            </div>
+          </div>
+
+          <!-- Category Breakdown Donut Chart & 7 Groups Legend -->
+          <div class="chart-card">
+            <div class="chart-card-header">
+              <div class="chart-card-title">
+                <span>🍩</span> Tovar Guruhlari Taqsimoti
+              </div>
+              <span id="category-count-badge" style="font-size: 0.78rem; font-weight: 700; color: #fbbf24;">7 ta guruh</span>
+            </div>
+            <div class="category-breakdown-wrapper">
+              <div class="chart-container-donut">
+                <canvas id="chart-category-breakdown"></canvas>
+              </div>
+              <div class="category-legend-list" id="category-legend-list">
+                <!-- 7 groups rendered dynamically with dot, name, percentage, and sum -->
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tables Row (50% / 50% Qarzlarimiz & Recent Feed) -->
+        <div class="dashboard-tables-row">
+          <!-- Top Creditor Suppliers Table -->
+          <div class="chart-card">
+            <div class="chart-card-header">
+              <div class="chart-card-title">
+                <span>🤝</span> Qarzlarimiz Ro'yxati
+              </div>
+              <span style="font-size: 0.8rem; color: var(--text-muted);">MoySklad hisoboti</span>
+            </div>
+            <div style="overflow-x: auto;">
+              <table class="history-table" style="width: 100%;">
+                <thead>
+                  <tr>
+                    <th>Yetkazib Beruvchi</th>
+                    <th style="text-align: right;">Qarz Summasi</th>
+                    <th style="text-align: center;">Qarz Turi</th>
+                    <th style="text-align: right;">Amal</th>
+                  </tr>
+                </thead>
+                <tbody id="dashboard-creditors-tbody">
+                  <!-- Filled dynamically -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Recent Supplies Table (50% / 50% split with Qarzlarimiz) -->
+          <div class="chart-card">
+            <div class="chart-card-header">
+              <div class="chart-card-title">
+                <span>⚡</span> So'nggi Kirimlar Oqimi
+              </div>
+              <button class="btn btn-secondary btn-sm" id="btn-view-all-supplies-link">
+                Barchasi ➔
               </button>
             </div>
+            <div style="overflow-x: auto;">
+              <table class="history-table" style="width: 100%;">
+                <thead>
+                  <tr>
+                    <th>Hujjat №</th>
+                    <th>Sana</th>
+                    <th>Yetkazib Beruvchi</th>
+                    <th style="text-align: right;">Summa</th>
+                    <th style="text-align: center;">Holat</th>
+                  </tr>
+                </thead>
+                <tbody id="dashboard-recent-supplies-tbody">
+                  <!-- Filled dynamically -->
+                </tbody>
+              </table>
+            </div>
           </div>
-          <div class="form-group">
-            <label class="form-label">Valyuta hujjati</label>
-            <select class="form-control" id="header-currency">
-              <option value="UZS" selected>сум (UZS)</option>
-              <option value="USD">USD ($)</option>
-              <option value="RUB">руб (RUB)</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      <!-- Grid Toolbar -->
-      <div class="grid-toolbar">
-        <div class="toolbar-left">
-          <button class="btn btn-primary btn-sm" id="btn-add-row">
-            <span>➕</span> Qator qo'shish <span class="kbd">Enter</span>
-          </button>
-          <button class="btn btn-secondary btn-sm" id="btn-duplicate-row">
-            <span>📑</span> Nusxa olish (Ctrl+D)
-          </button>
-          <button class="btn btn-secondary btn-sm" id="btn-add-5-rows">
-            <span>➕5</span> +5 qator
-          </button>
         </div>
 
-        <div class="toolbar-right">
-          <span style="font-size: 0.8rem; color: var(--text-dim);">
-            Klaviatura: <span class="kbd">Tab</span> / <span class="kbd">Shift+Tab</span>, <span class="kbd">↑↓</span> harakat, <span class="kbd">Enter</span> pastga tushish
-          </span>
-          <button class="btn btn-secondary btn-sm" id="btn-export-csv">
-            <span>📥</span> Excelga yuklab olish
-          </button>
-        </div>
-      </div>
-
-      <!-- Grid Table -->
-      <div class="grid-container">
-        <div class="table-responsive">
-          <table class="excel-table" id="receipt-table">
-            <thead>
-              <tr>
-                <th style="width: 40px; text-align: center;">№</th>
-                <th style="min-width: 120px;">Страна (Mamlakat)</th>
-                <th style="min-width: 170px;">Вид товара *</th>
-                <th class="col-auto" style="min-width: 150px;">Категория (Auto)</th>
-                <th class="col-auto" style="min-width: 130px;">Группа (Auto)</th>
-                <th style="min-width: 130px;">Бренд *</th>
-                <th style="min-width: 100px;">Коллекция *</th>
-                <th style="min-width: 120px;">Сезон</th>
-                <th style="min-width: 80px;">Размер</th>
-                <th style="min-width: 140px;">Цвет / Описание</th>
-                <th style="min-width: 110px;">Код модели</th>
-                <th class="col-auto" style="min-width: 150px;">Артикул (Auto)</th>
-                <th class="col-auto" style="min-width: 220px;">Наименование (Auto)</th>
-                <th style="min-width: 80px;">Количество *</th>
-                <th style="min-width: 125px;" id="th-price-buy">Цена закупа (so'm) *</th>
-                <th style="min-width: 125px;" id="th-price-sale">Цена продажи (so'm) *</th>
-                <th class="col-auto" style="min-width: 100px;">Надценка %</th>
-                <th class="col-auto" style="min-width: 130px;" id="th-sum-buy">Сумма закупа (so'm)</th>
-                <th class="col-auto" style="min-width: 130px;" id="th-sum-sale">Сумма продажи (so'm)</th>
-                <th style="width: 60px; text-align: center;">Amal</th>
-              </tr>
-            </thead>
-            <tbody id="grid-tbody">
-              <!-- Dynamically rendered rows -->
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- Stats Summary Bar -->
-      <div class="stats-summary-bar">
-        <div class="stat-card">
-          <span class="stat-label">Jami Pozitsiyalar</span>
-          <span class="stat-value" id="stat-total-items">0 ta</span>
-          <span class="stat-sub">Jadvaldagi qatorlar</span>
-        </div>
-        <div class="stat-card">
-          <span class="stat-label">Jami Tovar Soni</span>
-          <span class="stat-value" id="stat-total-qty">0 dona</span>
-          <span class="stat-sub">Umumiy miqdor</span>
-        </div>
-        <div class="stat-card blue-glow">
-          <span class="stat-label">Jami Tan Narx (Закуп)</span>
-          <span class="stat-value" id="stat-sum-buy">0 so'm</span>
-          <span class="stat-sub">Yetkazib beruvchiga to'lanadigan</span>
-        </div>
-        <div class="stat-card gold-glow">
-          <span class="stat-label">Jami Sotish Summasi</span>
-          <span class="stat-value" id="stat-sum-sale">0 so'm</span>
-          <span class="stat-sub">Chakana narx bo'yicha</span>
-        </div>
-        <div class="stat-card">
-          <span class="stat-label">O'rtacha Ustama (Надценка)</span>
-          <span class="stat-value" id="stat-avg-markup">0.0%</span>
-          <span class="stat-sub">Kutilayotgan marja</span>
-        </div>
-        <div class="stat-card">
-          <span class="stat-label">Kutilayotgan Yalpi Foyda</span>
-          <span class="stat-value" id="stat-expected-profit" style="color: #34d399;">0 so'm</span>
-          <span class="stat-sub">Sotish - Tan narx</span>
-        </div>
-      </div>
-
-      <!-- Bottom Submission Bar -->
-      <div class="bottom-submit-bar">
-        <div class="submit-info">
-          <h4 style="font-size: 1rem; margin-bottom: 0.2rem;">MoySklad bilan avtomatik integratsiya</h4>
-          <p style="font-size: 0.8rem; color: var(--text-muted);">
-            Tugma bosilganda mahsulotlar yaratiladi, do'kon omboriga Приемка hujjati rasmiylashtiriladi va Telegramga xabar yuboriladi.
-          </p>
-        </div>
-        <div style="display: flex; gap: 0.75rem; align-items: center;">
-          <button class="btn btn-secondary btn-lg" id="btn-validate-only">
-            <span>🔍</span> Qatorlarni tekshirish
-          </button>
-          <button class="btn btn-gold btn-lg" id="btn-submit-moysklad">
-            <span>🚀</span> MoySklad'ga yuborish (Приемка)
-          </button>
-        </div>
-      </div>
-
-    </section>
-
-    <!-- TAB 2: HISTORY OF SUBMISSIONS -->
-    <section id="tab-history" class="tab-content">
-      <div class="doc-header-card">
-        <div class="doc-header-top">
-          <h2>Kirim Hujjatlari Tarixi</h2>
-          <button class="btn btn-secondary btn-sm" id="btn-refresh-history">
-            <span>🔄</span> Yangilash
-          </button>
-        </div>
-        <div class="grid-container" style="margin-top: 1rem;">
-          <table class="history-table">
-            <thead>
-              <tr>
-                <th>№ Hujjat</th>
-                <th>Sana</th>
-                <th>Yetkazib Beruvchi</th>
-                <th>Ombor</th>
-                <th>Pozitsiyalar</th>
-                <th>Dona</th>
-                <th>Kirim Summasi</th>
-                <th>Sotish Summasi</th>
-                <th>Holat</th>
-                <th>MoySklad Havolasi</th>
-                <th>Amal</th>
-              </tr>
-            </thead>
-            <tbody id="history-tbody">
-              <!-- Dynamically filled -->
-            </tbody>
-          </table>
-        </div>
       </div>
     </section>
 
-    <!-- TAB 3: MANBALAR (KATALOG & KODLAR) -->
+    <!-- =========================================================
+         TAB 2: KIRIMLAR (MOYSKLAD PRIYOMKALARI RO'YXATI + GRID EDITOR)
+         ========================================================= -->
+    <section id="tab-supplies" class="tab-content">
+      
+      <!-- 2A. MOYSKLAD PRIYOMKALARI RO'YXATI (DEFAULT) -->
+      <div id="supplies-list-view" class="supplies-container">
+        
+        <!-- Filter & Search Bar (Unified Luxury Filter Bar) -->
+        <div class="dashboard-filter-bar" id="supplies-filter-bar" style="margin-top: 0; margin-bottom: 0.85rem;">
+          <div class="filter-bar-left" style="gap: 0.5rem; flex: 1; align-items: center; flex-wrap: wrap;">
+            
+            <!-- 1. Quick Period Chips -->
+            <div class="quick-filter-chips">
+              <button class="filter-chip" data-supp-period="today">Bugun</button>
+              <button class="filter-chip" data-supp-period="yesterday">Kecha</button>
+              <button class="filter-chip" data-supp-period="week">Hafta</button>
+              <button class="filter-chip" data-supp-period="month">Oy</button>
+              <button class="filter-chip active" data-supp-period="all">Hammasi</button>
+            </div>
+
+            <!-- Date Stepper (◀ Label ▶) -->
+            <div class="date-stepper-box">
+              <button class="stepper-btn" id="btn-supp-date-prev" title="Oldingi kun/davr">◀</button>
+              <span class="stepper-label" id="supp-stepper-date-label">Hammasi</span>
+              <button class="stepper-btn" id="btn-supp-date-next" title="Keyingi kun/davr">▶</button>
+            </div>
+
+            <!-- 2. Date Range Selector -->
+            <div class="date-range-box">
+              <input type="date" id="supplies-filter-from" class="date-range-input" title="Boshlanish sanasi">
+              <span class="date-range-separator">—</span>
+              <input type="date" id="supplies-filter-to" class="date-range-input" title="Tugash sanasi">
+            </div>
+
+            <!-- 3. Search Box (Hujjat №, Kontragent) -->
+            <div style="position: relative; min-width: 170px; max-width: 240px; flex: 1;">
+              <input type="text" id="supplies-search-input" class="form-control" placeholder="🔍 Qidirish (№, Kontragent)..." style="padding: 0.28rem 0.65rem; font-size: 0.78rem; height: 32px;">
+            </div>
+
+            <!-- 4. Counterparty Multi-Select Filter Dropdown -->
+            <div class="cp-filter-dropdown" id="supplies-cp-filter-dropdown">
+              <button type="button" class="cp-filter-btn" id="btn-supplies-cp-toggle" style="height: 32px;">
+                <span>🏢</span>
+                <span id="supplies-cp-filter-label">Yetkazib beruvchi: Barchasi</span>
+                <span class="cp-filter-arrow">▾</span>
+              </button>
+              <div class="cp-filter-menu" id="supplies-cp-filter-menu" style="display: none;">
+                <div class="cp-filter-search-box">
+                  <input type="text" id="supplies-cp-search-input" placeholder="Yetkazib beruvchi qidiruvi..." class="cp-filter-search-input" autocomplete="off">
+                </div>
+                <div class="cp-filter-actions">
+                  <button type="button" class="cp-filter-action-link" id="btn-supplies-cp-select-all">Hammasi</button>
+                  <span style="color: var(--text-dim); font-size: 0.75rem;">|</span>
+                  <button type="button" class="cp-filter-action-link" id="btn-supplies-cp-clear-all">Tozalash</button>
+                </div>
+                <div class="cp-filter-list" id="supplies-cp-filter-list">
+                  <!-- Checkbox items populated dynamically -->
+                </div>
+              </div>
+            </div>
+
+            <!-- 5. Status Filter Dropdown (Ixcham) -->
+            <div style="width: 150px;">
+              <select id="supplies-filter-status" class="form-control" style="padding: 0.28rem 0.5rem; font-size: 0.78rem; height: 32px;">
+                <option value="">Barcha holatlar</option>
+                <option value="Qoralama">🟡 Qoralamalar</option>
+                <option value="To'langan">✅ To'langan</option>
+                <option value="Qisman">⏳ Qisman</option>
+                <option value="To'lanmagan">⚠️ To'lanmagan</option>
+              </select>
+            </div>
+
+          </div>
+
+          <!-- Right: Loading -->
+          <div class="filter-bar-right" style="gap: 0.35rem; align-items: center;">
+            <span id="supplies-loading-badge" style="display: none; font-size: 0.78rem; color: #fbbf24; font-weight: 600;">🔄 Yuklanmoqda...</span>
+          </div>
+        </div>
+
+        <!-- Supplies Table Card with Full-Height Sticky Footer & Header -->
+        <div class="chart-card supplies-table-wrapper" style="padding: 0; overflow: hidden; border-radius: var(--radius-md); height: calc(100vh - 162px); display: flex; flex-direction: column; margin-bottom: 0;">
+          <div style="flex: 1; overflow-y: auto; overflow-x: auto; position: relative;">
+            <table class="history-table sticky-header-table" id="supplies-table" style="width: 100%; border-collapse: separate; border-spacing: 0;">
+              <thead>
+                <tr>
+                  <th class="sortable-th" data-sort="name">
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
+                      <span>№ Hujjat</span>
+                      <span class="sort-icon" id="sort-icon-name">⇅</span>
+                    </div>
+                  </th>
+                  <th class="sortable-th active-sort" data-sort="moment">
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
+                      <span>Sana</span>
+                      <span class="sort-icon" id="sort-icon-moment">▼</span>
+                    </div>
+                  </th>
+                  <th class="sortable-th" data-sort="agent_name">
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
+                      <span>Yetkazib Beruvchi (Kontragent)</span>
+                      <span class="sort-icon" id="sort-icon-agent_name">⇅</span>
+                    </div>
+                  </th>
+                  <th class="sortable-th" data-sort="store_name">
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
+                      <span>Ombor</span>
+                      <span class="sort-icon" id="sort-icon-store_name">⇅</span>
+                    </div>
+                  </th>
+                  <th class="sortable-th" data-sort="sum" style="text-align: right;">
+                    <div style="display: flex; align-items: center; justify-content: flex-end; gap: 4px;">
+                      <span>Kirim Summasi</span>
+                      <span class="sort-icon" id="sort-icon-sum">⇅</span>
+                    </div>
+                  </th>
+                  <th class="sortable-th" data-sort="payed_sum" style="text-align: right;">
+                    <div style="display: flex; align-items: center; justify-content: flex-end; gap: 4px;">
+                      <span>To'langan</span>
+                      <span class="sort-icon" id="sort-icon-payed_sum">⇅</span>
+                    </div>
+                  </th>
+                  <th class="sortable-th" data-sort="debt" style="text-align: right;">
+                    <div style="display: flex; align-items: center; justify-content: flex-end; gap: 4px;">
+                      <span>Qarzdorlik</span>
+                      <span class="sort-icon" id="sort-icon-debt">⇅</span>
+                    </div>
+                  </th>
+                  <th class="sortable-th" data-sort="status" style="text-align: center;">
+                    <div style="display: flex; align-items: center; justify-content: center; gap: 4px;">
+                      <span>Holat</span>
+                      <span class="sort-icon" id="sort-icon-status">⇅</span>
+                    </div>
+                  </th>
+                  <th style="text-align: center; width: 110px;">MoySklad</th>
+                </tr>
+              </thead>
+              <tbody id="supplies-tbody">
+                <!-- Dynamically filled from MoySklad API -->
+              </tbody>
+              <tfoot id="supplies-tfoot">
+                <tr class="supplies-footer-row" style="background: var(--bg-card); border-top: 2px solid var(--border-subtle); font-size: 0.82rem;">
+                  <td colspan="4" style="padding: 0.65rem 0.85rem;">
+                    <div class="supplies-pagination" id="supplies-pagination-controls" style="display: flex; align-items: center; gap: 0.45rem;">
+                      <button type="button" class="btn btn-secondary page-nav-btn" id="supp-page-first" title="Birinchi sahifa" style="padding: 0.2rem 0.55rem; height: 28px; font-size: 0.8rem;">«</button>
+                      <button type="button" class="btn btn-secondary page-nav-btn" id="supp-page-prev" title="Oldingi sahifa" style="padding: 0.2rem 0.55rem; height: 28px; font-size: 0.8rem;">‹</button>
+                      <span class="page-indicator" id="supp-page-indicator" style="font-weight: 700; color: #fbbf24; font-family: 'JetBrains Mono', monospace; padding: 0 0.35rem; white-space: nowrap;">1-50 из 50</span>
+                      <button type="button" class="btn btn-secondary page-nav-btn" id="supp-page-next" title="Keyingi sahifa" style="padding: 0.2rem 0.55rem; height: 28px; font-size: 0.8rem;">›</button>
+                      <button type="button" class="btn btn-secondary page-nav-btn" id="supp-page-last" title="Oxirgi sahifa" style="padding: 0.2rem 0.55rem; height: 28px; font-size: 0.8rem;">»</button>
+                      <select id="supp-page-size" class="form-control page-size-select" style="height: 28px; width: 95px; padding: 0 0.4rem; font-size: 0.75rem; margin-left: 0.5rem;">
+                        <option value="50" selected>50 tadan</option>
+                        <option value="100">100 tadan</option>
+                        <option value="all">Barchasi</option>
+                      </select>
+                    </div>
+                  </td>
+                  <td style="text-align: right; font-weight: 800; font-family: 'JetBrains Mono', monospace; color: var(--text-main); font-size: 0.9rem;" id="supp-foot-sum">0 so'm</td>
+                  <td style="text-align: right; font-weight: 800; font-family: 'JetBrains Mono', monospace; color: #10b981; font-size: 0.9rem;" id="supp-foot-paid">0 so'm</td>
+                  <td style="text-align: right; font-weight: 800; font-family: 'JetBrains Mono', monospace; color: #ef4444; font-size: 0.9rem;" id="supp-foot-debt">0 so'm</td>
+                  <td colspan="2" style="text-align: center; color: var(--text-dim); font-size: 0.75rem; font-weight: 600;">JAMI</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2B. EXCEL-SIMON TEZKOR GRID QABUL EDITOR (OPENS VIA BUTTON) -->
+      <div id="supplies-grid-view" style="display: none;">
+
+        <!-- 1. Redesigned Document Header Bar (Label on Top, Input Below, Clean Stacked Groups) -->
+        <div class="doc-header-card" style="margin-top: 0; padding: 0.65rem 0.85rem; margin-bottom: 0.65rem;">
+          <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap;">
+            
+            <!-- Left: Back button -->
+            <div style="display: flex; align-items: flex-end; gap: 0.5rem;">
+              <button class="btn btn-secondary" id="btn-back-to-supplies" style="padding: 0.4rem 0.85rem; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.35rem; height: 34px;">
+                <span>⬅️</span> Orqaga
+              </button>
+            </div>
+
+            <!-- Middle: Form Inputs with Label ON TOP, Input ON BOTTOM -->
+            <div style="display: flex; align-items: flex-end; gap: 0.65rem; flex-wrap: wrap; flex: 1; justify-content: center;">
+              
+              <!-- Приемка № -->
+              <div class="header-field-stacked">
+                <label class="header-field-label">Приемка №</label>
+                <input type="text" class="form-control" id="header-doc-number" placeholder="00036" style="width: 82px; height: 32px; padding: 0.2rem 0.4rem; font-family: 'JetBrains Mono', monospace; font-weight: 700; color: #fbbf24; font-size: 0.82rem; text-align: center;">
+              </div>
+
+              <!-- Sana -->
+              <div class="header-field-stacked">
+                <label class="header-field-label">Sana</label>
+                <input type="datetime-local" class="form-control" id="header-date" style="width: 165px; height: 32px; padding: 0.2rem 0.4rem; font-size: 0.78rem;">
+              </div>
+
+              <!-- Ombor -->
+              <div class="header-field-stacked">
+                <label class="header-field-label">Ombor</label>
+                <select class="form-control" id="header-store" style="min-width: 140px; height: 32px; padding: 0.2rem 0.4rem; font-size: 0.78rem;">
+                  <option value="">Yuklanmoqda...</option>
+                </select>
+              </div>
+
+              <!-- Yetkazib beruvchi -->
+              <div class="header-field-stacked">
+                <label class="header-field-label">Yetkazib beruvchi</label>
+                <div style="display: flex; gap: 0.25rem; align-items: center;">
+                  <select class="form-control" id="header-counterparty" style="min-width: 160px; max-width: 220px; height: 32px; padding: 0.2rem 0.4rem; font-size: 0.78rem;">
+                    <option value="">Tanlang...</option>
+                  </select>
+                  <button type="button" class="btn btn-secondary" id="btn-quick-add-cp" title="Yangi Kontragent qo'shish" style="width: 32px; height: 32px; padding: 0; font-size: 1rem; font-weight: 700; color: #38bdf8; display: inline-flex; align-items: center; justify-content: center;">
+                    +
+                  </button>
+                </div>
+              </div>
+
+              <!-- Valyuta -->
+              <div class="header-field-stacked">
+                <label class="header-field-label">Valyuta</label>
+                <select class="form-control" id="header-currency" style="width: 105px; height: 32px; padding: 0.2rem 0.4rem; font-size: 0.78rem;">
+                  <option value="UZS" selected>сум (UZS)</option>
+                  <option value="USD">USD ($)</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Right: Actions (Saqlash, To'liq ekran, AI Rasm, Tozalash, Status) -->
+            <div style="display: flex; align-items: flex-end; gap: 0.45rem;">
+              <button class="btn btn-secondary" id="btn-save-draft-top" style="height: 34px; padding: 0.25rem 0.75rem; font-size: 0.78rem; font-weight: 700; white-space: nowrap; border-color: rgba(245, 158, 11, 0.4); color: #fbbf24;" title="Qoralamani saqlash (Ctrl+S)">
+                <span>💾</span> Saqlash
+              </button>
+              <button class="btn btn-secondary" id="btn-toggle-fullscreen" style="height: 34px; padding: 0.25rem 0.75rem; font-size: 0.78rem; font-weight: 700; white-space: nowrap;" title="To'liq ekranga yoyish / Kichraytirish">
+                <span id="fullscreen-icon">⛶</span> <span id="fullscreen-label">Katta ekran</span>
+              </button>
+              <button class="btn btn-ai" id="btn-open-ai-modal" style="height: 34px; padding: 0.25rem 0.75rem; font-size: 0.78rem; font-weight: 700; white-space: nowrap;">
+                <span>✨</span> AI Rasm
+              </button>
+              <button class="btn btn-secondary" id="btn-clear-grid" style="height: 34px; padding: 0.25rem 0.65rem; font-size: 0.78rem; white-space: nowrap;" title="Jadvalni tozalash">
+                <span>🗑️</span> Tozalash
+              </button>
+              <div class="auto-save-indicator" id="auto-save-badge" style="display: none;">
+                <span id="save-status"></span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- 2. Grid Table (Starts immediately at top) -->
+        <div class="grid-container">
+          <div class="table-responsive">
+            <table class="excel-table" id="receipt-table">
+              <thead>
+                <tr>
+                  <th style="width: 40px; text-align: center;">№</th>
+                  <th style="min-width: 120px;">Страна (Mamlakat)</th>
+                  <th style="min-width: 170px;">Вид товара *</th>
+                  <th class="col-auto" style="min-width: 150px;">Категория (Auto)</th>
+                  <th class="col-auto" style="min-width: 130px;">Группа (Auto)</th>
+                  <th style="min-width: 130px;">Бренд *</th>
+                  <th style="min-width: 125px;">Код модели</th>
+                  <th style="min-width: 100px;">Коллекция *</th>
+                  <th style="min-width: 120px;">Сезон</th>
+                  <th style="min-width: 80px;">Размер</th>
+                  <th style="min-width: 130px;">Описание (Izoh)</th>
+                  <th class="col-auto" style="min-width: 135px; text-align: center;">Модель (Auto)</th>
+                  <th class="col-auto" style="min-width: 90px; text-align: center;">Код (Auto)</th>
+                  <th class="col-auto" style="min-width: 160px;">Артикул (Auto)</th>
+                  <th class="col-auto" style="min-width: 220px;">Наименование (Auto)</th>
+                  <th style="min-width: 80px;">Количество *</th>
+                  <th style="min-width: 125px;" id="th-price-buy">Цена закупа *</th>
+                  <th style="min-width: 105px;">Надценка %</th>
+                  <th style="min-width: 125px;" id="th-price-sale">Цена продажи *</th>
+                  <th class="col-auto" style="min-width: 130px;" id="th-sum-buy">Сумма закупа</th>
+                  <th class="col-auto" style="min-width: 130px;" id="th-sum-sale">Сумма продажи</th>
+                  <th style="min-width: 190px;">Цвет (Rang) 🎨</th>
+                  <th style="min-width: 85px; width: 85px; text-align: center;">Amal</th>
+                </tr>
+              </thead>
+              <tbody id="grid-tbody">
+                <!-- Dynamically rendered rows -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 3. Grid Toolbar (Moved directly BELOW Excel table) -->
+        <div class="grid-toolbar" style="margin-top: 0.65rem; margin-bottom: 0.65rem;">
+          <div class="toolbar-left">
+            <button class="btn btn-primary btn-sm" id="btn-add-row">
+              <span>➕</span> Qator qo'shish <span class="kbd">Enter</span>
+            </button>
+            <button class="btn btn-secondary btn-sm" id="btn-duplicate-row">
+              <span>📑</span> Nusxa olish (Ctrl+D)
+            </button>
+            <button class="btn btn-secondary btn-sm" id="btn-add-5-rows">
+              <span>➕5</span> +5 qator
+            </button>
+          </div>
+
+          <div class="toolbar-right">
+            <button class="btn btn-secondary btn-sm" id="btn-export-csv">
+              <span>📥</span> Excelga yuklab olish
+            </button>
+          </div>
+        </div>
+
+        <!-- 4. Stats Summary Bar -->
+        <div class="stats-summary-bar">
+          <div class="stat-card">
+            <span class="stat-label">Jami Pozitsiyalar</span>
+            <span class="stat-value" id="stat-total-items">0 ta</span>
+            <span class="stat-sub">Jadvaldagi qatorlar</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Jami Tovar Soni</span>
+            <span class="stat-value" id="stat-total-qty">0 dona</span>
+            <span class="stat-sub">Umumiy miqdor</span>
+          </div>
+          <div class="stat-card blue-glow">
+            <span class="stat-label">Jami Tan Narx (Закуп)</span>
+            <span class="stat-value" id="stat-sum-buy">0 so'm</span>
+            <span class="stat-sub">Yetkazib beruvchiga to'lanadigan</span>
+          </div>
+          <div class="stat-card gold-glow">
+            <span class="stat-label">Jami Sotish Summasi</span>
+            <span class="stat-value" id="stat-sum-sale">0 so'm</span>
+            <span class="stat-sub">Chakana narx bo'yicha</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">O'rtacha Ustama (Надценка)</span>
+            <span class="stat-value" id="stat-avg-markup">0.0%</span>
+            <span class="stat-sub">Kutilayotgan marja</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Kutilayotgan Yalpi Foyda</span>
+            <span class="stat-value" id="stat-expected-profit" style="color: #34d399;">0 so'm</span>
+            <span class="stat-sub">Sotish - Tan narx</span>
+          </div>
+        </div>
+
+        <!-- 5. Bottom Submission Bar (Compact Luxury Bar) -->
+        <div class="bottom-submit-bar" style="padding: 0.65rem 1rem;">
+          <div class="submit-info" style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <span style="font-size: 0.76rem; color: var(--text-dim);">
+              ⌨️ <span class="kbd">Tab</span> / <span class="kbd">Shift+Tab</span> yurish, <span class="kbd">Enter</span> pastga, <span class="kbd">Alt+↓</span> ro'yxat, <span class="kbd">Ctrl+Enter</span> ranglarni klonlash
+            </span>
+          </div>
+          <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+            <button class="btn btn-secondary btn-sm" id="btn-save-draft" style="font-weight: 700; height: 36px; padding: 0.35rem 0.85rem;" title="Qoralamani saqlash (Ctrl+S)">
+              <span>💾</span> Saqlash
+            </button>
+            <button class="btn btn-secondary btn-sm" id="btn-validate-only" style="font-weight: 700; height: 36px; padding: 0.35rem 0.85rem;" title="Hujjat qatorlarini tekshirish">
+              <span>🔍</span> Tekshirish
+            </button>
+            <button class="btn btn-gold btn-sm" id="btn-submit-moysklad" style="font-weight: 800; height: 36px; padding: 0.35rem 1.15rem; font-size: 0.88rem;">
+              <span>🚀</span> MoySklad'ga yuborish
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- =========================================================
+         TAB 3: MANBALAR (KATALOG, IERARXIYA, GURUHLAR, KODLAR)
+         ========================================================= -->
     <section id="tab-references" class="tab-content">
       <div class="doc-header-card">
         <div class="doc-header-top">
@@ -292,48 +735,57 @@
       </div>
     </section>
 
-    <!-- TAB 4: SETTINGS & MOYSKLAD DIAGNOSTICS -->
+    <!-- =========================================================
+         TAB 4: SOZLAMALAR & MOYSKLAD DIAGNOSTIKASI
+         ========================================================= -->
     <section id="tab-settings" class="tab-content">
       <div class="doc-header-card">
         <div class="doc-header-top">
           <h2>Tizim Sozlamalari & Integratsiya Holati</h2>
         </div>
-
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem; margin-top: 1rem;">
+        <div class="settings-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem; margin-top: 1.5rem;">
           
-          <!-- MoySklad Card -->
-          <div class="stat-card" style="padding: 1.25rem;">
-            <h3 style="font-size: 1.1rem; margin-bottom: 0.75rem;">🏢 MoySklad Gateway API</h3>
-            <div id="settings-ms-details" style="font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.5rem;">
-              <div>Holat: <span class="badge badge-synced" id="settings-ms-status">Ulanmoqda...</span></div>
-              <div>Tashkilot: <b id="settings-ms-org">-</b></div>
-              <div>API Versiya: <b>Remap 1.2</b></div>
-            </div>
-            <button class="btn btn-secondary btn-sm" id="btn-test-ms-connection" style="margin-top: 1rem;">
-              <span>🔌</span> Qayta tekshirish
-            </button>
-          </div>
-
-          <!-- Articul Counter Card -->
-          <div class="stat-card gold-glow" style="padding: 1.25rem;">
-            <h3 style="font-size: 1.1rem; margin-bottom: 0.75rem;">🔢 Артикул Ketma-ket Raqami (Counter)</h3>
-            <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem;">
-              Yangi artikul yaratilganda 5 xonali ketma-ket raqam (masalan 00521) shu yerdan hisoblanadi.
-            </p>
-            <div style="display: flex; align-items: center; gap: 0.75rem;">
-              <input type="number" class="form-control" id="settings-articul-counter" style="max-width: 140px;" value="500">
-              <button class="btn btn-gold btn-sm" id="btn-update-counter">Saqlash</button>
+          <!-- MoySklad Config Box -->
+          <div class="settings-card" style="background: var(--bg-card-subtle); padding: 1.5rem; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+            <h4 style="margin-bottom: 1rem; color: #38bdf8;">🔗 MoySklad Remap 1.2 Integratsiyasi</h4>
+            <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+              <div>
+                <span style="color: var(--text-muted); font-size: 0.85rem;">Holat:</span>
+                <span class="badge" id="settings-ms-status">Tekshirilmoqda...</span>
+              </div>
+              <div>
+                <span style="color: var(--text-muted); font-size: 0.85rem;">Do'kon:</span>
+                <b id="settings-ms-org">DE LUXURY</b>
+              </div>
+              <div>
+                <span style="color: var(--text-muted); font-size: 0.85rem;">API URL:</span>
+                <code>https://api.moysklad.ru/api/remap/1.2</code>
+              </div>
             </div>
           </div>
 
-          <!-- AI Gemini Vision Card -->
-          <div class="stat-card" style="padding: 1.25rem;">
-            <h3 style="font-size: 1.1rem; margin-bottom: 0.75rem;">🤖 Google Gemini Flash AI</h3>
-            <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem;">
-              Накладная va chek rasmlarini yuqori aniqlikda jadvalga o'giruvchi neyron model.
+          <!-- Articul Auto-increment Setting -->
+          <div class="settings-card" style="background: var(--bg-card-subtle); padding: 1.5rem; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+            <h4 style="margin-bottom: 1rem; color: #fbbf24;">🔢 Boshlang'ich Ketma-ketlik (Counter)</h4>
+            <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1rem;">
+              Yangi tovarlar artikuli (masalan <code>A26TOP00501</code>) uchun 5 xonali raqam boshlanishi.
             </p>
-            <div>Model: <b>gemini-1.5-flash</b></div>
-            <div style="margin-top: 0.5rem;">Holat: <span class="badge badge-synced">Faol</span></div>
+            <div style="display: flex; gap: 0.5rem;">
+              <input type="number" class="form-control" id="settings-articul-counter" value="500" style="max-width: 140px; font-weight: 700;">
+              <button class="btn btn-secondary btn-sm" id="btn-save-counter">Saqlash</button>
+            </div>
+          </div>
+
+          <!-- Telegram Bot Alert Box -->
+          <div class="settings-card" style="background: var(--bg-card-subtle); padding: 1.5rem; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+            <h4 style="margin-bottom: 1rem; color: #34d399;">📱 Telegram Bot Bildirishnomalari</h4>
+            <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1rem;">
+              Har safar yangi qabul (приемка) rasmiylashtirilganda admin va menejerlarga avtomatik xabar boradi.
+            </p>
+            <div>
+              <span class="badge badge-synced">✅ Bot Faol</span>
+              <span style="font-size: 0.8rem; color: var(--text-muted); margin-left: 0.5rem;">@DeLuxuryBot</span>
+            </div>
           </div>
 
         </div>
@@ -342,76 +794,83 @@
 
   </main>
 
+  <!-- =========================================================
+       MODALS & OVERLAYS
+       ========================================================= -->
+
   <!-- MODAL: QUICK ADD CONTRAGENT -->
   <div class="modal-backdrop" id="modal-quick-cp">
-    <div class="modal-window" style="max-width: 480px;">
+    <div class="modal-window">
       <div class="modal-header">
-        <h3>➕ Yangi Yetkazib beruvchi (Контрагент)</h3>
+        <h3>➕ Yangi Yetkazib beruvchi (Kontragent) Ochish</h3>
         <button class="btn-icon" id="btn-close-cp-modal">✕</button>
       </div>
       <div class="modal-body">
         <div class="form-group" style="margin-bottom: 1rem;">
-          <label class="form-label">Kontragent Nomi *</label>
-          <input type="text" class="form-control" id="cp-new-name" placeholder="Masalan: Saidabbos / Textile MChJ">
+          <label class="form-label">Yetkazib beruvchi nomi *</label>
+          <input type="text" class="form-control" id="modal-cp-name" placeholder="Masalan: Zara Turkey Export, Karvon...">
         </div>
         <div class="form-group" style="margin-bottom: 1rem;">
           <label class="form-label">Telefon raqami</label>
-          <input type="text" class="form-control" id="cp-new-phone" placeholder="+998901234567">
+          <input type="text" class="form-control" id="modal-cp-phone" placeholder="+998 90 123 45 67">
+        </div>
+        <div class="form-group" style="margin-bottom: 1rem;">
+          <label class="form-label">Guruhi (Teg / Qayerdan)</label>
+          <input type="text" class="form-control" id="modal-cp-group" placeholder="Masalan: Turkiya, Xitoy, Aksesuar...">
         </div>
         <div class="form-group">
-          <label class="form-label">Izoh (Opisanie)</label>
-          <textarea class="form-control" id="cp-new-desc" rows="2" placeholder="Yetkazib beruvchi haqida izoh..."></textarea>
+          <label class="form-label">Izoh / Manzil (Ixtiyoriy)</label>
+          <input type="text" class="form-control" id="modal-cp-desc" placeholder="Kiyim yetkazib beruvchi">
         </div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" id="btn-cancel-cp">Bekor qilish</button>
-        <button class="btn btn-primary" id="btn-save-new-cp">💾 MoySklad'da Saqlash</button>
+        <button class="btn btn-primary" id="btn-save-cp">MoySklad'da yaratish</button>
       </div>
     </div>
   </div>
 
-  <!-- MODAL: PRODUCT TYPE (IERARXIYA) ADD/EDIT -->
-  <div class="modal-backdrop" id="modal-pt-edit">
-    <div class="modal-window" style="max-width: 520px;">
+  <!-- MODAL: ADD / EDIT PRODUCT TYPE -->
+  <div class="modal-backdrop" id="modal-product-type">
+    <div class="modal-window">
       <div class="modal-header">
-        <h3 id="pt-modal-title">➕ Mahsulot turi & Ierarxiya</h3>
+        <h3 id="modal-pt-title">Yangi Mahsulot turi (Вид товара) qo'shish</h3>
         <button class="btn-icon" id="btn-close-pt-modal">✕</button>
       </div>
       <div class="modal-body">
-        <input type="hidden" id="pt-edit-id" value="">
+        <input type="hidden" id="modal-pt-id">
         <div class="form-group" style="margin-bottom: 1rem;">
-          <label class="form-label">Вид товара (Mahsulot turi nomi) *</label>
-          <input type="text" class="form-control" id="pt-edit-name" placeholder="Masalan: Футболка, Куртка, Ремень">
+          <label class="form-label">Вид товара (Nomi) *</label>
+          <input type="text" class="form-control" id="modal-pt-name" placeholder="Masalan: Свитшот, Ветровка...">
         </div>
         <div class="form-group" style="margin-bottom: 1rem;">
-          <label class="form-label">Категория</label>
-          <input type="text" class="form-control" id="pt-edit-category" list="dl-all-categories" placeholder="Masalan: Футболки и поло">
-          <datalist id="dl-all-categories"></datalist>
+          <label class="form-label">Категория *</label>
+          <input type="text" class="form-control" id="modal-pt-category" placeholder="Masalan: Толстовки и Свитшоты...">
         </div>
-        <div class="form-group">
-          <label class="form-label">Группа (Артикул kodi uchun) *</label>
-          <select class="form-control" id="pt-edit-group">
-            <option value="">Guruhni tanlang...</option>
+        <div class="form-group" style="margin-bottom: 1rem;">
+          <label class="form-label">Группа *</label>
+          <select class="form-control" id="modal-pt-group">
+            <!-- Filled dynamically -->
           </select>
         </div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" id="btn-cancel-pt">Bekor qilish</button>
-        <button class="btn btn-primary" id="btn-save-pt">💾 Saqlash</button>
+        <button class="btn btn-gold" id="btn-save-pt">Saqlash</button>
       </div>
     </div>
   </div>
 
-  <!-- MODAL: EXCEL/CSV IMPORT FOR IERARXIYA -->
-  <div class="modal-backdrop" id="modal-import-hierarchy">
-    <div class="modal-window" style="max-width: 540px;">
+  <!-- MODAL: EXCEL / CSV HIERARCHY IMPORT -->
+  <div class="modal-backdrop" id="modal-hierarchy-import">
+    <div class="modal-window">
       <div class="modal-header">
-        <h3>📤 Excel / CSV orqali Ierarxiyani yangilash</h3>
+        <h3>📥 Ierarxiyani Excel / CSV orqali yangilash</h3>
         <button class="btn-icon" id="btn-close-import-modal">✕</button>
       </div>
       <div class="modal-body">
         <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
-          Fayl tarkibida <b>Вид товара</b>, <b>Категория</b>, <b>Группа</b> ustunlari bo'lishi kerak.
+          CSV yoki Excel fayl yuklang (ustunlar: <code>Вид товара</code>, <code>Категория</code>, <code>Группа</code>).
         </p>
         <div class="ai-dropzone" id="hierarchy-dropzone" style="padding: 2rem 1rem;">
           <div class="dropzone-icon">📄</div>
@@ -436,12 +895,11 @@
       <div class="modal-header">
         <div style="display: flex; align-items: center; gap: 0.5rem;">
           <span style="font-size: 1.25rem;">✨</span>
-          <h3>AI Накладная / Hisob-faktura Rasmini O'qish</h3>
+          <h3>AI Накладная / Hisob-faktura Rasmini O'qish (Gemini 3.8 Flash)</h3>
         </div>
         <button class="btn-icon" id="btn-close-ai-modal">✕</button>
       </div>
       <div class="modal-body">
-        
         <div class="ai-dropzone" id="ai-dropzone">
           <div class="dropzone-icon">📷</div>
           <h4 style="font-size: 1rem;">Rasm faylini shu yerga tashlang yoki tanlang</h4>
@@ -449,49 +907,58 @@
             Накладная, счёт-фактура yoki tovarlar ro'yxati fotosi (JPG, PNG, WEBP)
           </p>
           <input type="file" id="ai-file-input" accept="image/*" style="display: none;">
-          <button class="btn btn-ai btn-sm" onclick="document.getElementById('ai-file-input').click();">
-            📁 Faylni tanlash
+          <button class="btn btn-secondary" onclick="document.getElementById('ai-file-input').click();">
+            📁 Rasmni tanlash
           </button>
         </div>
 
-        <!-- AI Progress state -->
-        <div id="ai-progress-state" style="display: none; text-align: center; padding: 2rem;">
-          <div style="font-size: 2rem; animation: pulse-dot 1.5s infinite;">🤖</div>
-          <h4 style="margin-top: 1rem;" id="ai-progress-text">Gemini AI rasmni tahlil qilmoqda...</h4>
-          <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.5rem;">
-            Tovarlar qatorlari va narxlari spravochniklarimiz bilan solishtirilmoqda
-          </p>
-        </div>
-
-        <!-- AI Results Preview -->
-        <div id="ai-results-preview" style="display: none; margin-top: 1.5rem;">
-          <h4 style="font-size: 0.95rem; margin-bottom: 0.75rem; color: #34d399;">
-            ✅ Qatorlar aniqlandi (<span id="ai-detected-count">0</span> ta tovar):
-          </h4>
-          <div style="max-height: 250px; overflow: auto; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
-            <table class="excel-table" id="ai-preview-table">
-              <thead>
-                <tr>
-                  <th>Вид товара</th>
-                  <th>Бренд</th>
-                  <th>Размер</th>
-                  <th>Описание</th>
-                  <th>Soni</th>
-                  <th>Tan narx</th>
-                  <th>Sotish narx</th>
-                  <th>Ishonch</th>
-                </tr>
-              </thead>
-              <tbody id="ai-preview-tbody"></tbody>
-            </table>
+        <div class="ai-preview-zone" id="ai-preview-zone" style="display: none;">
+          <div style="display: flex; gap: 1rem; align-items: center; margin-bottom: 1rem;">
+            <img id="ai-preview-img" style="max-height: 120px; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
+            <div>
+              <div id="ai-filename" style="font-weight: 600;"></div>
+              <div id="ai-filesize" style="font-size: 0.8rem; color: var(--text-muted);"></div>
+              <button class="btn btn-secondary btn-sm" id="btn-ai-reselect" style="margin-top: 0.5rem;">Boshqa rasm tanlash</button>
+            </div>
           </div>
         </div>
 
+        <div class="ai-loading-zone" id="ai-loading-zone" style="display: none;">
+          <div class="ai-spinner"></div>
+          <h4>Sun'iy intellekt tovar qatorlarini o'qimoqda...</h4>
+          <p style="font-size: 0.85rem; color: var(--text-muted);">
+            Tovarlar katalogi va ierarxiyasi bilan taqqoslanmoqda...
+          </p>
+        </div>
+
+        <div class="ai-results-zone" id="ai-results-zone" style="display: none;">
+          <div class="badge badge-synced" id="ai-results-badge" style="margin-bottom: 0.75rem;"></div>
+          <div style="max-height: 240px; overflow-y: auto;">
+            <table class="history-table" style="font-size: 0.8rem;">
+              <thead>
+                <tr>
+                  <th>№</th>
+                  <th>Вид товара</th>
+                  <th>Бренд</th>
+                  <th>Размер</th>
+                  <th>Soni</th>
+                  <th>Tan narx</th>
+                  <th>Sotish narxi</th>
+                  <th>Ishonch</th>
+                </tr>
+              </thead>
+              <tbody id="ai-results-tbody"></tbody>
+            </table>
+          </div>
+        </div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" id="btn-cancel-ai">Bekor qilish</button>
         <button class="btn btn-gold" id="btn-apply-ai-rows" style="display: none;">
-          ➕ Jadvalga qo'shish
+          ✅ Jadvalga o'tkazish
+        </button>
+        <button class="btn btn-primary" id="btn-start-ai-scan">
+          ⚡ Tahlilni boshlash
         </button>
       </div>
     </div>
@@ -538,10 +1005,13 @@
   <div class="toast-container" id="toast-container"></div>
 
   <!-- Scripts -->
+  <script src="js/dashboard.js"></script>
+  <script src="js/supplies.js?v=2.6"></script>
   <script src="js/references.js"></script>
   <script src="js/grid.js"></script>
   <script src="js/ai-scanner.js"></script>
   <script src="js/history.js"></script>
   <script src="js/app.js"></script>
+
 </body>
 </html>

@@ -8,7 +8,7 @@ from backend.config import get_settings
 from backend.database import engine, Base, SessionLocal
 from backend.seed import seed_database
 from backend.routers import (
-    references, articul, ai, documents, moysklad, gateway
+    references, articul, ai, documents, moysklad, gateway, dashboard
 )
 
 logging.basicConfig(
@@ -63,6 +63,7 @@ app.include_router(articul.router)
 app.include_router(ai.router)
 app.include_router(documents.router)
 app.include_router(moysklad.router)
+app.include_router(dashboard.router)
 
 # Mount Frontend static files
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"

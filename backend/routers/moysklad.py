@@ -46,7 +46,8 @@ async def create_counterparty_endpoint(data: Dict[str, Any]):
         return {"status": "error", "message": "Kontragent nomi bo'sh bo'lishi mumkin emas"}
     phone = data.get("phone")
     desc = data.get("description")
-    return await ms_service.create_counterparty(name=name, phone=phone, description=desc)
+    tag = data.get("tag") or data.get("group")
+    return await ms_service.create_counterparty(name=name, phone=phone, description=desc, tag=tag)
 
 @router.get("/next-doc-number")
 async def get_next_doc_number_endpoint():

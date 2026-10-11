@@ -63,6 +63,8 @@ class Color(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), unique=True, nullable=False, index=True)  # e.g. "Черный"
     code_no = Column(Integer, nullable=True)  # e.g. 51
+    short_code = Column(String(10), nullable=True, unique=True, index=True)  # e.g. "BLK", "STD"
+    is_favorite = Column(Boolean, default=False)  # Top 10 favorite fast select
     rgb = Column(String(30), nullable=True)
     moysklad_id = Column(String(100), nullable=True)
     status = Column(String(20), default="local_only")
@@ -144,6 +146,7 @@ class PrixodItem(Base):
     season = Column(String(50), nullable=True)
     size = Column(String(50), nullable=True)
     description = Column(String(255), nullable=True)
+    factory_code = Column(String(100), nullable=True)
     model_code = Column(String(100), nullable=True)
     color = Column(String(100), nullable=True)
     
@@ -176,6 +179,18 @@ class DraftState(Base):
     __tablename__ = "draft_state"
 
     id = Column(Integer, primary_key=True)
-    draft_key = Column(String(50), unique=True, default="current_grid")
+    draft_key = Column(String(100), default="current_grid", index=True)
+    doc_number = Column(String(100), nullable=True)
+    date = Column(String(50), nullable=True)
+    counterparty_name = Column(String(255), nullable=True)
+    counterparty_id = Column(String(100), nullable=True)
+    store_name = Column(String(255), nullable=True)
+    store_id = Column(String(100), nullable=True)
+    currency = Column(String(10), default="UZS")
+    total_items = Column(Integer, default=0)
+    total_qty = Column(Float, default=0.0)
+    total_sum_buy = Column(Float, default=0.0)
+    total_sum_sale = Column(Float, default=0.0)
     data_json = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)

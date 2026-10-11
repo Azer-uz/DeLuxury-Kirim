@@ -57,7 +57,18 @@ def get_all_references(db: Session = Depends(get_db)):
             for pt in product_types
         ],
         "brands": [{"id": b.id, "name": b.name, "status": b.status} for b in brands],
-        "colors": [{"id": c.id, "name": c.name, "code_no": c.code_no, "rgb": c.rgb, "status": c.status} for c in colors],
+        "colors": [
+            {
+                "id": c.id, 
+                "name": c.name, 
+                "code_no": c.code_no, 
+                "short_code": (c.short_code or "").upper(), 
+                "is_favorite": bool(c.is_favorite), 
+                "rgb": c.rgb, 
+                "status": c.status
+            } 
+            for c in colors
+        ],
         "countries": [{"id": cnt.id, "name": cnt.name, "status": cnt.status} for cnt in countries],
         "product_type_map": pt_map,
         "season_map": season_map
@@ -314,6 +325,101 @@ def add_season(data: Dict[str, str], db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_s)
     return {"status": "created", "season": {"id": new_s.id, "collection": new_s.collection, "code": new_s.code}}
+
+# ================= RANG (COLOR) CRUD & TOP 10 FAVORITES =================
+@router.post("/color")
+def add_color(data: Dict[str, Any], db: Session = Depends(get_db)):
+    name = (data.get("name") or "").strip()
+    short_code = (data.get("short_code") or "").strip().upper()
+    code_no = data.get("code_no")
+    rgb = (data.get("rgb") or "").strip()
+    is_favorite = bool(data.get("is_favorite", False))
+
+    if not name:
+        raise HTTPException(status_code=400, detail="Rang nomi kiritilishi shart")
+    if not short_code:
+        raise HTTPException(status_code=400, detail="3 harfli qisqa kod kiritilishi shart (masalan: BLK)")
+
+    # Tekshiruv: short_code unikal bo'lishi shart!
+    dup_code = db.query(Color).filter(Color.short_code == short_code).first()
+    if dup_code:
+        raise HTTPException(status_code=400, detail=f"'{short_code}' kodi allaqachon '{dup_code.name}' rangiga biriktirilgan! Kod unikal bo'lishi shart.")
+
+    existing_name = db.query(Color).filter(Color.name.ilike(name)).first()
+    if existing_name:
+        raise HTTPException(status_code=400, detail=f"'{name}' nomli rang allaqachon mavjud!")
+
+    new_color = Color(
+        name=name,
+        short_code=short_code,
+        code_no=code_no,
+        rgb=rgb,
+        is_favorite=is_favorite,
+        status="local_only"
+    )
+    db.add(new_color)
+    db.commit()
+    db.refresh(new_color)
+    return {
+        "status": "created",
+        "color": {
+            "id": new_color.id,
+            "name": new_color.name,
+            "short_code": new_color.short_code,
+            "code_no": new_color.code_no,
+            "is_favorite": new_color.is_favorite
+        }
+    }
+
+@router.put("/color/{color_id}")
+def update_color(color_id: int, data: Dict[str, Any], db: Session = Depends(get_db)):
+    color = db.query(Color).filter(Color.id == color_id).first()
+    if not color:
+        raise HTTPException(status_code=404, detail="Rang topilmadi")
+
+    name = (data.get("name") or "").strip()
+    short_code = (data.get("short_code") or "").strip().upper()
+    
+    if name:
+        color.name = name
+    if short_code:
+        # Tekshiruv: boshqa rangda aynan shu short_code bormi?
+        dup_code = db.query(Color).filter(Color.short_code == short_code, Color.id != color_id).first()
+        if dup_code:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Xatolik: '{short_code}' kodi allaqachon '{dup_code.name}' rangiga biriktirilgan! Kodlar takrorlanmasligi shart."
+            )
+        color.short_code = short_code
+
+    if "is_favorite" in data:
+        color.is_favorite = bool(data["is_favorite"])
+    if "code_no" in data and data["code_no"] is not None:
+        color.code_no = int(data["code_no"])
+    if "rgb" in data:
+        color.rgb = (data["rgb"] or "").strip()
+
+    db.commit()
+    return {
+        "status": "updated",
+        "color": {
+            "id": color.id,
+            "name": color.name,
+            "short_code": color.short_code,
+            "code_no": color.code_no,
+            "is_favorite": color.is_favorite
+        }
+    }
+
+@router.post("/color/toggle-favorite/{color_id}")
+def toggle_color_favorite(color_id: int, db: Session = Depends(get_db)):
+    color = db.query(Color).filter(Color.id == color_id).first()
+    if not color:
+        raise HTTPException(status_code=404, detail="Rang topilmadi")
+
+    color.is_favorite = not bool(color.is_favorite)
+    db.commit()
+    return {"status": "ok", "id": color.id, "name": color.name, "is_favorite": color.is_favorite}
 
 @router.post("/sync-moysklad")
 async def sync_moysklad_catalog(db: Session = Depends(get_db)):

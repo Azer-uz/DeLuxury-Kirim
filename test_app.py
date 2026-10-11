@@ -62,16 +62,33 @@ def run_tests():
         print('6. Validation check: valid =', r_val.json()['valid'])
 
         # 7. Test Draft Save & Load
-        r_draft = client.post('/api/documents/draft', json={'header': {'currency': 'USD'}, 'rows': calc_payload['rows']})
+        r_draft = client.post('/api/documents/draft', json={'header': {'currency': 'UZS'}, 'rows': calc_payload['rows']})
         assert r_draft.status_code == 200
         r_get_draft = client.get('/api/documents/draft')
         assert r_get_draft.status_code == 200
+        # Clean up draft so it doesn't pollute production
+        from backend.database import SessionLocal
+        from backend.models import DraftState
+        with SessionLocal() as db_cleanup:
+            db_cleanup.query(DraftState).filter(DraftState.doc_number == '').delete()
+            db_cleanup.commit()
         print('7. Draft Save & Load: OK')
 
         # 8. Test History
         r_hist = client.get('/api/documents/history')
         assert r_hist.status_code == 200
         print('8. History endpoint: OK')
+
+        # 9. Test Dashboard Stats
+        r_dash = client.get('/api/dashboard/stats')
+        assert r_dash.status_code == 200
+        dash_data = r_dash.json()
+        print('9. Dashboard Stats: OK (Total supplies: ' + str(dash_data['kpi']['total_supplies_sum']) + ' uzs, Batches: ' + str(dash_data['kpi']['total_batches']) + ')')
+
+        # 10. Test MoySklad Supplies List
+        r_supp = client.get('/api/dashboard/supplies?limit=10')
+        assert r_supp.status_code == 200
+        print('10. Supplies List: OK (' + str(r_supp.json()['total']) + ' total supplies)')
 
         print('\nALL SYSTEM TESTS PASSED SUCCESSFULLY! [OK]')
 

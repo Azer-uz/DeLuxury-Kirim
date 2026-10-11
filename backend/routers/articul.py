@@ -31,7 +31,7 @@ def calculate_batch(data: Dict[str, Any], db: Session = Depends(get_db)):
             collection_name=row.get("collection"),
             brand_name=row.get("brand"),
             description=row.get("description"),
-            model_code=row.get("model_code"),
+            model_code=row.get("factory_code") or row.get("model_code"),
             quantity=float(row.get("quantity") or 1.0),
             price_buy=float(row.get("price_buy") or 0.0),
             price_sale=float(row.get("price_sale") or 0.0)
@@ -49,14 +49,33 @@ def calculate_batch(data: Dict[str, Any], db: Session = Depends(get_db)):
 
     return {"results": results, "base_counter": base_counter}
 
+from backend.services.moysklad_service import MoySkladService
+
+ms_service = MoySkladService()
+
 @router.get("/counter")
-def get_counter_info(db: Session = Depends(get_db)):
-    """Get current last used articul number."""
+async def get_counter_info(db: Session = Depends(get_db)):
+    """Get current last used articul/code number synchronized with MoySklad."""
     counter = db.query(ArticulCounter).filter(
         ArticulCounter.group_code == "GLOBAL",
         ArticulCounter.season_code == "GLOBAL"
     ).first()
+    
     last_num = counter.last_number if counter else 500
+
+    try:
+        max_ms_code = await ms_service.get_max_product_code()
+        if max_ms_code > last_num:
+            last_num = max_ms_code
+            if not counter:
+                counter = ArticulCounter(group_code="GLOBAL", season_code="GLOBAL", last_number=last_num)
+                db.add(counter)
+            else:
+                counter.last_number = last_num
+            db.commit()
+    except Exception as e:
+        pass
+
     return {
         "last_number": last_num,
         "next_preview": f"{last_num + 1:05d}"

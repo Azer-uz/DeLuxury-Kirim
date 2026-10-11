@@ -17,30 +17,144 @@ router = APIRouter(prefix="/api/documents", tags=["Documents & Submission"])
 ms_service = MoySkladService()
 tg_service = TelegramService()
 
+@router.get("/drafts")
+def get_all_drafts(db: Session = Depends(get_db)):
+    """Retrieve all saved drafts with summary metadata."""
+    drafts = db.query(DraftState).order_by(DraftState.updated_at.desc()).all()
+    results = []
+    for d in drafts:
+        # Check rows count
+        r_count = d.total_items
+        if not r_count and d.data_json:
+            try:
+                parsed = json.loads(d.data_json)
+                r_count = len(parsed.get("rows", []))
+            except Exception:
+                r_count = 0
+        if r_count == 0 and not d.doc_number:
+            continue
+        results.append({
+            "id": d.id,
+            "draft_key": d.draft_key,
+            "doc_number": d.doc_number or f"0000{d.id}",
+            "date": d.date or (d.updated_at.strftime("%Y-%m-%d") if d.updated_at else ""),
+            "counterparty_name": d.counterparty_name or "(Noma'lum)",
+            "store_name": d.store_name or "Основной склад",
+            "currency": d.currency or "UZS",
+            "total_items": r_count,
+            "total_qty": d.total_qty,
+            "total_sum_buy": d.total_sum_buy,
+            "total_sum_sale": d.total_sum_sale,
+            "updated_at": d.updated_at.strftime("%Y-%m-%d %H:%M") if d.updated_at else ""
+        })
+    return results
+
 @router.get("/draft")
 def get_draft(db: Session = Depends(get_db)):
-    """Retrieve saved draft state for the grid."""
-    draft = db.query(DraftState).filter(DraftState.draft_key == "current_grid").first()
+    """Retrieve latest active draft state for backward compatibility."""
+    draft = db.query(DraftState).order_by(DraftState.updated_at.desc()).first()
     if draft and draft.data_json:
         try:
-            return json.loads(draft.data_json)
+            data = json.loads(draft.data_json)
+            data["draft_id"] = draft.id
+            return data
         except Exception:
             return {"header": {}, "rows": []}
     return {"header": {}, "rows": []}
 
+@router.get("/draft/{draft_id}")
+def get_draft_by_id(draft_id: int, db: Session = Depends(get_db)):
+    """Retrieve specific draft by ID."""
+    draft = db.query(DraftState).filter(DraftState.id == draft_id).first()
+    if not draft or not draft.data_json:
+        raise HTTPException(status_code=404, detail="Qoralama topilmadi")
+    try:
+        data = json.loads(draft.data_json)
+        data["draft_id"] = draft.id
+        return data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Qoralama ma'lumotini o'qishda xatolik: {e}")
+
 @router.post("/draft")
 def save_draft(data: Dict[str, Any], db: Session = Depends(get_db)):
-    """Save current grid state as draft."""
-    draft = db.query(DraftState).filter(DraftState.draft_key == "current_grid").first()
+    """Save or update draft with metadata."""
+    header = data.get("header", {})
+    rows = data.get("rows", [])
+    draft_id = data.get("draft_id") or header.get("draft_id")
+
+    # Compute summary metrics
+    valid_items = [r for r in rows if r.get("product_type") or (float(r.get("price_buy") or 0) > 0)]
+    t_items = len(valid_items)
+    t_qty = sum(float(r.get("quantity") or 0) for r in rows)
+    t_sum_buy = sum(float(r.get("sum_buy") or 0) for r in rows)
+    t_sum_sale = sum(float(r.get("sum_sale") or 0) for r in rows)
+
+    doc_num = (header.get("doc_number") or "").strip()
+    cp_name = (header.get("counterparty_name") or "").strip()
+    cp_id = header.get("counterparty_id")
+    st_name = (header.get("store_name") or "Основной склад").strip()
+    st_id = header.get("store_id")
+    doc_date = (header.get("date") or "").strip()
+    cur = (header.get("currency") or "UZS").strip()
+
     json_str = json.dumps(data, ensure_ascii=False)
+
+    draft = None
+    if draft_id:
+        draft = db.query(DraftState).filter(DraftState.id == int(draft_id)).first()
+
+    if not draft and doc_num:
+        draft = db.query(DraftState).filter(DraftState.doc_number == doc_num).first()
+
     if not draft:
-        draft = DraftState(draft_key="current_grid", data_json=json_str)
+        draft = DraftState(
+            draft_key=f"draft_{doc_num or datetime.datetime.utcnow().timestamp()}",
+            doc_number=doc_num,
+            date=doc_date,
+            counterparty_name=cp_name,
+            counterparty_id=cp_id,
+            store_name=st_name,
+            store_id=st_id,
+            currency=cur,
+            total_items=t_items,
+            total_qty=t_qty,
+            total_sum_buy=t_sum_buy,
+            total_sum_sale=t_sum_sale,
+            data_json=json_str
+        )
         db.add(draft)
     else:
+        draft.doc_number = doc_num or draft.doc_number
+        draft.date = doc_date or draft.date
+        draft.counterparty_name = cp_name or draft.counterparty_name
+        draft.counterparty_id = cp_id or draft.counterparty_id
+        draft.store_name = st_name or draft.store_name
+        draft.store_id = st_id or draft.store_id
+        draft.currency = cur or draft.currency
+        draft.total_items = t_items
+        draft.total_qty = t_qty
+        draft.total_sum_buy = t_sum_buy
+        draft.total_sum_sale = t_sum_sale
         draft.data_json = json_str
         draft.updated_at = datetime.datetime.utcnow()
+
     db.commit()
-    return {"status": "saved", "updated_at": draft.updated_at.isoformat() if draft.updated_at else ""}
+    return {
+        "status": "saved",
+        "draft_id": draft.id,
+        "doc_number": draft.doc_number,
+        "updated_at": draft.updated_at.isoformat() if draft.updated_at else ""
+    }
+
+@router.delete("/draft/{draft_id}")
+def delete_draft(draft_id: int, db: Session = Depends(get_db)):
+    """Delete draft by ID."""
+    draft = db.query(DraftState).filter(DraftState.id == draft_id).first()
+    if draft:
+        db.delete(draft)
+        db.commit()
+        return {"status": "deleted", "message": "Qoralama o'chirildi"}
+    raise HTTPException(status_code=404, detail="Qoralama topilmadi")
 
 @router.post("/validate")
 def validate_rows(data: Dict[str, Any], db: Session = Depends(get_db)):
@@ -114,6 +228,7 @@ async def submit_to_moysklad(data: Dict[str, Any], db: Session = Depends(get_db)
         coll = r.get("collection", "AW26").strip()
         brand = r.get("brand", "").strip()
         desc = r.get("description", "").strip()
+        factory_code = r.get("factory_code", "").strip()
         model = r.get("model_code", "").strip()
         qty = float(r.get("quantity") or 1.0)
         p_buy = float(r.get("price_buy") or 0.0)
@@ -129,7 +244,7 @@ async def submit_to_moysklad(data: Dict[str, Any], db: Session = Depends(get_db)
             collection_name=coll,
             brand_name=brand,
             description=desc,
-            model_code=model,
+            model_code=factory_code or model,
             quantity=qty,
             price_buy=p_buy,
             price_sale=p_sale
@@ -151,6 +266,7 @@ async def submit_to_moysklad(data: Dict[str, Any], db: Session = Depends(get_db)
             "category": calc["category"],
             "group_name": calc["group_name"],
             "brand": brand,
+            "factory_code": factory_code,
             "collection": coll,
             "season": r.get("season", "Весна-Осень"),
             "size": size,
@@ -180,7 +296,7 @@ async def submit_to_moysklad(data: Dict[str, Any], db: Session = Depends(get_db)
         doc_number=doc_number,
         counterparty_name=header.get("counterparty_name", "Yetkazib beruvchi"),
         counterparty_id=header.get("counterparty_id"),
-        store_name=header.get("store_name", "Asosiy Ombor"),
+        store_name=header.get("store_name", "Основной склад"),
         store_id=header.get("store_id"),
         currency=header.get("currency", "USD"),
         total_sum_buy=round(total_sum_buy, 2),
@@ -219,9 +335,16 @@ async def submit_to_moysklad(data: Dict[str, Any], db: Session = Depends(get_db)
         db.commit()
 
         # Clear draft after successful creation
-        draft = db.query(DraftState).filter(DraftState.draft_key == "current_grid").first()
+        draft_id = header.get("draft_id")
+        draft = None
+        if draft_id:
+            draft = db.query(DraftState).filter(DraftState.id == int(draft_id)).first()
+        if not draft and doc_number:
+            draft = db.query(DraftState).filter(DraftState.doc_number == doc_number).first()
+        if not draft:
+            draft = db.query(DraftState).filter(DraftState.draft_key == "current_grid").first()
         if draft:
-            draft.data_json = json.dumps({"header": {}, "rows": []})
+            db.delete(draft)
             db.commit()
 
         # Send Telegram notification

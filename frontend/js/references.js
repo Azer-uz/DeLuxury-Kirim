@@ -79,12 +79,53 @@ const References = {
     return upper.substring(0, 3);
   },
 
+  getTopColors() {
+    const popular = [
+      'Бежевый', 'Белый', 'Зеленый', 'Коричневый', 'Хаки',
+      'Красный', 'Серый', 'Синий', 'Темно-синий', 'Черный', 'Мультиколор'
+    ];
+    const all = this.data.colors || [];
+    const list = [];
+    popular.forEach(pName => {
+      const match = all.find(c => c.name && c.name.trim().toLowerCase() === pName.toLowerCase());
+      if (match) {
+        list.push(match);
+      } else {
+        list.push({ name: pName, short_code: '' });
+      }
+    });
+    return list;
+  },
+
+  getColorCode(colorName) {
+    if (!colorName) return 'STD';
+    const clean = colorName.trim().toLowerCase();
+    if (clean === 'мультиколор' || clean === 'multicolor' || clean === 'aralash' || clean === 'standart' || clean === 'std') {
+      return 'STD';
+    }
+    const found = (this.data.colors || []).find(c => c.name && c.name.trim().toLowerCase() === clean);
+    if (found && found.short_code) {
+      return found.short_code.trim().toUpperCase();
+    }
+    // Fallback: Agar kod topilmasa, STD
+    return 'STD';
+  },
+
+  getTopColors() {
+    const list = this.data.colors || [];
+    const favs = list.filter(c => c.is_favorite);
+    if (favs.length > 0) return favs;
+    // Default top 10 fallback
+    return list.slice(0, 10);
+  },
+
   calculateRow(row, rowIndex, baseCounter = 500) {
     const pType = (row.product_type || '').trim();
     const coll = (row.collection || 'AW26').trim();
     const brand = (row.brand || '').trim();
+    const factoryCode = (row.factory_code || '').trim();
     const desc = (row.description || '').trim();
-    const model = (row.model_code || '').trim();
+    const color = (row.color || '').trim();
     const qty = parseFloat(row.quantity) || 0;
     const pBuy = parseFloat(row.price_buy) || 0;
     const pSale = parseFloat(row.price_sale) || 0;
@@ -93,29 +134,46 @@ const References = {
     const seasonCode = this.getSeasonCode(coll);
     const groupCode = ptInfo.group_code || 'UND';
 
+    // Model calculation: SeasonCode + GroupCode + 5-digit sequence (e.g. A26OBV00669)
     const sequenceNum = baseCounter + rowIndex + 1;
     const zeroPadded = String(sequenceNum).padStart(5, '0');
-    const calculatedArticul = `${seasonCode}${groupCode}${zeroPadded}`;
+    // Automatic model should ALWAYS be calculatedModel unless custom_model is explicitly set
+    const modelCode = (row.custom_model && row.model_code && row.model_code.trim()) ? row.model_code.trim() : calculatedModel;
 
-    const nameParts = [pType, desc, brand, model].filter(Boolean);
+    // Articul calculation: ModelCode + 3-letter ColorCode without hyphen (e.g. A26OBV00669BLK or A26OBV00669STD)
+    const colorCode = this.getColorCode(color);
+    const calculatedArticul = `${modelCode}${colorCode}`;
+
+    // Tovar nomiga Rang qo'shilmaydi. Brenddan keyin Код модели (Zavod artikuli) turadi:
+    const nameParts = [pType, desc, brand, factoryCode].filter(Boolean);
     const fullName = nameParts.join(' ').trim();
 
-    let markupPct = 0;
-    if (pBuy > 0) {
+    let finalSale = pSale;
+    let markupPct = parseFloat(row.markup_pct) || 0;
+
+    if (row.last_edited_field === 'markup_pct' && pBuy > 0) {
+      finalSale = Math.round(pBuy * (1 + markupPct / 100) * 100) / 100;
+    } else if (pBuy > 0 && pSale > 0) {
       markupPct = Math.round(((pSale / pBuy) - 1) * 1000) / 10;
     }
 
     const sumBuy = Math.round((qty * pBuy) * 100) / 100;
-    const sumSale = Math.round((qty * pSale) * 100) / 100;
+    const sumSale = Math.round((qty * finalSale) * 100) / 100;
 
     return {
       category: ptInfo.category,
       group_name: ptInfo.group,
       group_code: groupCode,
       season_code: seasonCode,
+      code: zeroPadded,
+      model_code: modelCode,
+      calculated_model: calculatedModel,
+      factory_code: factoryCode,
+      color_code: colorCode,
       articul: row.custom_articul ? row.articul : calculatedArticul,
       calculated_articul: calculatedArticul,
       full_name: fullName,
+      price_sale: finalSale,
       markup_pct: markupPct,
       sum_buy: sumBuy,
       sum_sale: sumSale
@@ -567,32 +625,156 @@ function renderBrandsSubtab(container) {
   });
 }
 
-// 7. Colors Subtab
+// 7. Colors Subtab with 3-letter Code & Top 10 Favorite Management
 function renderColorsSubtab(container) {
   const list = References.data.colors || [];
+  const favCount = list.filter(c => c.is_favorite).length;
+
   let html = `
-    <div style="max-height: 450px; overflow: auto; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
-      <table class="history-table">
+    <!-- Top Action & New Color Bar -->
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+      <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+        <input type="text" id="new-color-name" class="form-control" placeholder="Rang nomi (masalan: Safir)..." style="max-width: 180px;">
+        <input type="text" id="new-color-code" class="form-control" placeholder="3 ta harf (SAF)..." maxlength="5" style="max-width: 130px; text-transform: uppercase;">
+        <input type="number" id="new-color-no" class="form-control" placeholder="№ No..." style="max-width: 80px;">
+        <button class="btn btn-primary btn-sm" id="btn-add-color-ref">➕ Rang qo'shish</button>
+      </div>
+      <div style="font-size: 0.85rem; color: var(--text-muted); background: var(--bg-hover); padding: 0.35rem 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
+        ⭐ Tezkor (Top 10) ranglar: <b style="color: #f59e0b;" id="ref-fav-count">${favCount}</b> ta tanlangan
+      </div>
+    </div>
+
+    <!-- Colors Table -->
+    <div style="max-height: 480px; overflow: auto; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
+      <table class="history-table" style="width: 100%;">
         <thead>
           <tr>
-            <th>№ Kod</th>
+            <th style="width: 60px;">№ No</th>
             <th>Rang Nomi</th>
-            <th>Holat</th>
+            <th style="width: 160px;">3 Harfli Kod (Artikul uchun)</th>
+            <th style="width: 140px; text-align: center;">⭐ Tezkor (Top 10)</th>
+            <th style="width: 90px; text-align: center;">Holat</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody id="ref-colors-tbody">
   `;
+
   list.forEach((c) => {
+    const isFav = !!c.is_favorite;
     html += `
-      <tr>
+      <tr data-color-id="${c.id}">
         <td><span class="kbd">${c.code_no || '-'}</span></td>
-        <td><b>${c.name}</b></td>
-        <td><span class="badge badge-synced">✅ Faol</span></td>
+        <td>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="display: inline-block; width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--border-subtle); background: ${c.rgb || (c.name === 'Белый' ? '#ffffff' : (c.name === 'Черный' ? '#000000' : '#888888'))};"></span>
+            <b>${c.name}</b>
+          </div>
+        </td>
+        <td>
+          <input type="text" 
+            class="form-control color-short-code-input" 
+            data-id="${c.id}" 
+            data-old="${c.short_code || ''}" 
+            value="${c.short_code || ''}" 
+            maxlength="5" 
+            style="font-family: monospace; font-weight: 700; text-transform: uppercase; width: 90px; padding: 0.2rem 0.5rem; font-size: 0.85rem;"
+            placeholder="KOD">
+        </td>
+        <td style="text-align: center;">
+          <button type="button" 
+            class="btn btn-sm btn-toggle-fav-color ${isFav ? 'btn-primary' : 'btn-secondary'}" 
+            data-id="${c.id}"
+            style="padding: 0.2rem 0.55rem; font-size: 0.78rem; font-weight: 600;">
+            ${isFav ? '⭐ Asosiy' : '☆ Oddiy'}
+          </button>
+        </td>
+        <td style="text-align: center;"><span class="badge badge-synced">✅ Faol</span></td>
       </tr>
     `;
   });
+
   html += `</tbody></table></div>`;
   container.innerHTML = html;
+
+  // Add new color handler
+  document.getElementById('btn-add-color-ref')?.addEventListener('click', async () => {
+    const name = document.getElementById('new-color-name').value.trim();
+    const short_code = document.getElementById('new-color-code').value.trim().toUpperCase();
+    const code_no = document.getElementById('new-color-no').value.trim();
+
+    if (!name || !short_code) {
+      alert("Rang nomi va 3 harfli qisqa kod kiritilishi shart!");
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/references/color', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, short_code, code_no: code_no ? parseInt(code_no) : null })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.detail || "Rang qo'shishda xatolik yuz berdi!");
+        return;
+      }
+      await References.init();
+      renderColorsSubtab(container);
+      if (typeof showToast === 'function') showToast("Yangi rang muvaffaqiyatli qo'shildi!", "success");
+    } catch (err) {
+      alert("Server bilan bog'lanishda xatolik!");
+    }
+  });
+
+  // Toggle favorite handler
+  container.querySelectorAll('.btn-toggle-fav-color').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const id = btn.getAttribute('data-id');
+      try {
+        const res = await fetch(`/api/references/color/toggle-favorite/${id}`, { method: 'POST' });
+        if (res.ok) {
+          await References.init();
+          renderColorsSubtab(container);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    });
+  });
+
+  // Short code blur/change handler with duplicate check
+  container.querySelectorAll('.color-short-code-input').forEach(input => {
+    input.addEventListener('change', async () => {
+      const id = input.getAttribute('data-id');
+      const oldVal = input.getAttribute('data-old') || '';
+      const newVal = input.value.trim().toUpperCase();
+      if (!newVal) {
+        input.value = oldVal;
+        return;
+      }
+      if (newVal === oldVal) return;
+
+      try {
+        const res = await fetch(`/api/references/color/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ short_code: newVal })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          alert(data.detail || "Kod yangilashda xatolik!");
+          input.value = oldVal;
+          return;
+        }
+        input.setAttribute('data-old', newVal);
+        await References.init();
+        if (typeof showToast === 'function') showToast(`Rang kodi '${newVal}' ga o'zgartirildi!`, "success");
+      } catch (err) {
+        alert("Server bilan bog'lanishda xatolik!");
+        input.value = oldVal;
+      }
+    });
+  });
 }
 
 // 8. Countries Subtab

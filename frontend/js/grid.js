@@ -3,6 +3,7 @@ const Grid = {
   rows: [],
   baseCounter: 500,
   activeCell: { rowIndex: 0, colKey: 'product_type' },
+  activeDraftId: null,
   isDirty: false,
   autoSaveTimer: null,
 
@@ -12,19 +13,16 @@ const Grid = {
     } catch (e) {
       console.warn("Could not fetch counter:", e);
     }
-    try {
-      await this.loadDraft();
-    } catch (e) {
-      console.warn("Could not load draft:", e);
-    }
     if (!this.rows || this.rows.length === 0) {
-      this.addEmptyRows(5);
+      this.addEmptyRows(1);
     } else {
       this.recalculateAll();
       this.render();
     }
     this.setupKeyboardEvents();
     this.setupAutoSave();
+    this.setupHeaderActions();
+    this.setupMultiColorModalEvents();
   },
 
   async fetchBaseCounter() {
@@ -43,16 +41,20 @@ const Grid = {
 
   createEmptyRow(defaultValues = {}) {
     return {
-      country: defaultValues.country || "Турция",
+      country: defaultValues.country || "",
       product_type: defaultValues.product_type || "",
       category: defaultValues.category || "",
       group_name: defaultValues.group_name || "",
-      brand: defaultValues.brand || "De Luxury",
-      collection: defaultValues.collection || "AW26",
-      season: defaultValues.season || "Весна-Осень",
-      size: defaultValues.size || "M",
+      brand: defaultValues.brand || "",
+      factory_code: defaultValues.factory_code || "",
+      collection: defaultValues.collection || "",
+      season: defaultValues.season || "",
+      size: defaultValues.size || "",
       description: defaultValues.description || "",
+      color: defaultValues.color || "",
+      colors: Array.isArray(defaultValues.colors) ? defaultValues.colors : (defaultValues.color ? [defaultValues.color] : []),
       model_code: defaultValues.model_code || "",
+      code: defaultValues.code || "",
       articul: defaultValues.articul || "",
       full_name: defaultValues.full_name || "",
       quantity: defaultValues.quantity !== undefined ? parseFloat(defaultValues.quantity) : 1,
@@ -69,14 +71,7 @@ const Grid = {
 
   addEmptyRows(count = 1) {
     for (let i = 0; i < count; i++) {
-      const lastRow = this.rows[this.rows.length - 1] || {};
-      const newRow = this.createEmptyRow({
-        country: lastRow.country || "Турция",
-        brand: lastRow.brand || "De Luxury",
-        collection: lastRow.collection || "AW26",
-        season: lastRow.season || "Весна-Осень"
-      });
-      this.rows.push(newRow);
+      this.rows.push(this.createEmptyRow());
     }
     this.recalculateAll();
     this.render();
@@ -90,6 +85,7 @@ const Grid = {
     if (!source) return;
     const cloned = JSON.parse(JSON.stringify(source));
     cloned.articul = ""; // will be recomputed sequentially
+    cloned.code = "";
     this.rows.splice(index + 1, 0, cloned);
     this.recalculateAll();
     this.render();
@@ -108,16 +104,25 @@ const Grid = {
   clearGrid() {
     if (confirm("Haqiqatan ham jadvaldagi barcha qatorlarni tozalamoqchimisiz?")) {
       this.rows = [];
-      this.addEmptyRows(5);
+      this.addEmptyRows(1);
       this.triggerAutoSave();
     }
   },
 
   recalculateAll() {
     this.rows.forEach((row, i) => {
+      // Sync colors array and single color
+      if (!row.colors || !Array.isArray(row.colors)) {
+        row.colors = row.color ? [row.color] : [];
+      } else if (row.colors.length > 0 && !row.color) {
+        row.color = row.colors[0];
+      }
+
       const calc = References.calculateRow(row, i, this.baseCounter);
       row.category = calc.category || '';
       row.group_name = calc.group_name || '';
+      row.code = calc.code || '';
+      row.model_code = calc.model_code || '';
       row.articul = calc.articul || '';
       row.full_name = calc.full_name || '';
       row.markup_pct = calc.markup_pct || 0;
@@ -218,101 +223,131 @@ const Grid = {
           <!-- Mamlakat -->
           <td>
             <input type="text" class="cell-input ${isLowConf('country') ? 'cell-ai-highlight' : ''}" 
-                   list="dl-countries" data-field="country" data-row="${idx}" value="${this.escapeHtml(row.country || '')}">
+                   list="dl-countries" data-field="country" data-row="${idx}" value="${this.escapeHtml(row.country || '')}" placeholder="Турция">
           </td>
 
           <!-- Mahsulot turi (Вид товара) -->
           <td>
             <input type="text" class="cell-input ${isLowConf('product_type') ? 'cell-ai-highlight' : ''}" 
-                   list="dl-product-types" data-field="product_type" data-row="${idx}" value="${this.escapeHtml(row.product_type || '')}" placeholder="Tanlang...">
+                   list="dl-product-types" data-field="product_type" data-row="${idx}" value="${this.escapeHtml(row.product_type || '')}" placeholder="Tanlang (masalan: Костюм)...">
           </td>
 
           <!-- Kategoriya (Auto) -->
           <td>
-            <span class="cell-auto">${this.escapeHtml(row.category || '-')}</span>
+            <span class="cell-auto cell-cat">${this.escapeHtml(row.category || '-')}</span>
           </td>
 
           <!-- Guruh (Auto) -->
           <td>
-            <span class="cell-auto">${this.escapeHtml(row.group_name || '-')}</span>
+            <span class="cell-auto cell-grp">${this.escapeHtml(row.group_name || '-')}</span>
           </td>
 
           <!-- Brend -->
           <td>
             <input type="text" class="cell-input ${isLowConf('brand') ? 'cell-ai-highlight' : ''}" 
-                   list="dl-brands" data-field="brand" data-row="${idx}" value="${this.escapeHtml(row.brand || '')}">
+                   list="dl-brands" data-field="brand" data-row="${idx}" value="${this.escapeHtml(row.brand || '')}" placeholder="De Luxury">
+          </td>
+
+          <!-- Kod modeli (Zavod artikuli) -->
+          <td>
+            <input type="text" class="cell-input" 
+                   data-field="factory_code" data-row="${idx}" value="${this.escapeHtml(row.factory_code || '')}" placeholder="M-101 / 7788">
           </td>
 
           <!-- Kolleksiya -->
           <td>
             <input type="text" class="cell-input" 
-                   list="dl-seasons" data-field="collection" data-row="${idx}" value="${this.escapeHtml(row.collection || 'AW26')}">
+                   list="dl-seasons" data-field="collection" data-row="${idx}" value="${this.escapeHtml(row.collection || '')}" placeholder="AW26">
           </td>
 
           <!-- Mavsum -->
           <td>
             <input type="text" class="cell-input" 
-                   list="dl-season-types" data-field="season" data-row="${idx}" value="${this.escapeHtml(row.season || 'Весна-Осень')}">
+                   list="dl-season-types" data-field="season" data-row="${idx}" value="${this.escapeHtml(row.season || '')}" placeholder="Весна-Осень">
           </td>
 
           <!-- O'lcham -->
           <td>
             <input type="text" class="cell-input ${isLowConf('size') ? 'cell-ai-highlight' : ''}" 
-                   list="dl-sizes" data-field="size" data-row="${idx}" value="${this.escapeHtml(row.size || 'M')}">
+                   list="dl-sizes" data-field="size" data-row="${idx}" value="${this.escapeHtml(row.size || '')}" placeholder="M">
           </td>
 
-          <!-- Tavsif / Rang -->
+          <!-- Tavsif / Izoh -->
           <td>
             <input type="text" class="cell-input ${isLowConf('description') ? 'cell-ai-highlight' : ''}" 
-                   list="dl-colors" data-field="description" data-row="${idx}" value="${this.escapeHtml(row.description || '')}" placeholder="Rang / tavsif">
+                   data-field="description" data-row="${idx}" value="${this.escapeHtml(row.description || '')}" placeholder="Izoh / tavsif">
           </td>
 
-          <!-- Model Kodi -->
-          <td>
-            <input type="text" class="cell-input" data-field="model_code" data-row="${idx}" value="${this.escapeHtml(row.model_code || '')}" placeholder="Model">
+          <!-- Model (Auto) -->
+          <td style="text-align: center;">
+            <span class="cell-auto cell-model" style="color: #fbbf24; font-weight: 700; letter-spacing: 0.5px; font-family: monospace; display: block; padding: 2px 4px;">${this.escapeHtml(row.model_code || '-')}</span>
+          </td>
+
+          <!-- Kod (Auto) -->
+          <td style="text-align: center;">
+            <span class="cell-auto cell-code" style="color: #38bdf8; font-weight: 700; letter-spacing: 0.5px;">${this.escapeHtml(row.code || '-')}</span>
           </td>
 
           <!-- Artikul (Auto) -->
           <td>
-            <span class="cell-articul">${this.escapeHtml(row.articul || '-')}</span>
+            <span class="cell-articul" style="font-family: monospace; font-weight: 700;">${this.escapeHtml(row.articul || '-')}</span>
           </td>
 
           <!-- Nomi (Auto) -->
           <td>
-            <span class="cell-auto" style="color: #f8fafc; font-family: inherit;">${this.escapeHtml(row.full_name || '-')}</span>
+            <span class="cell-auto cell-name" style="color: #f8fafc; font-family: inherit;">${this.escapeHtml(row.full_name || '-')}</span>
           </td>
 
           <!-- Soni -->
           <td>
             <input type="number" step="1" min="1" class="cell-input ${isLowConf('quantity') ? 'cell-ai-highlight' : ''}" 
-                   data-field="quantity" data-row="${idx}" value="${row.quantity !== undefined ? row.quantity : 1}" style="text-align: right;">
+                   data-field="quantity" data-row="${idx}" value="${row.quantity !== undefined && row.quantity !== '' ? row.quantity : 1}" style="text-align: right;">
           </td>
 
           <!-- Sotib olish narxi -->
           <td>
             <input type="number" step="1" min="0" class="cell-input ${isLowConf('price_buy') ? 'cell-ai-highlight' : ''}" 
-                   data-field="price_buy" data-row="${idx}" value="${row.price_buy !== undefined ? row.price_buy : 0}" style="text-align: right;">
+                   data-field="price_buy" data-row="${idx}" value="${row.price_buy !== undefined && row.price_buy !== 0 ? row.price_buy : ''}" placeholder="0" style="text-align: right;">
+          </td>
+
+          <!-- Nadtsenka % (Endi tahrirlanadigan maydon!) -->
+          <td>
+            <input type="number" step="0.5" class="cell-input" 
+                   data-field="markup_pct" data-row="${idx}" value="${markupVal !== 0 ? markupVal : ''}" placeholder="0%" 
+                   style="text-align: right; color: ${markupVal >= 30 ? '#4ade80' : markupVal > 0 ? '#fbbf24' : '#94a3b8'}; font-weight: 700;">
           </td>
 
           <!-- Sotish narxi -->
           <td>
             <input type="number" step="1" min="0" class="cell-input ${isLowConf('price_sale') ? 'cell-ai-highlight' : ''}" 
-                   data-field="price_sale" data-row="${idx}" value="${row.price_sale !== undefined ? row.price_sale : 0}" style="text-align: right;">
-          </td>
-
-          <!-- Nadtsenka % (Auto) -->
-          <td>
-            <span class="cell-auto" style="text-align: right; color: ${markupVal >= 100 ? '#34d399' : '#fbbf24'};">${markupVal}%</span>
+                   data-field="price_sale" data-row="${idx}" value="${row.price_sale !== undefined && row.price_sale !== 0 ? row.price_sale : ''}" placeholder="0" style="text-align: right;">
           </td>
 
           <!-- Summa Buy (Auto) -->
           <td>
-            <span class="cell-auto" style="text-align: right;">${sumBuyVal}</span>
+            <span class="cell-auto cell-sum-buy" style="text-align: right; display: block;">${sumBuyVal}</span>
           </td>
 
           <!-- Summa Sale (Auto) -->
           <td>
-            <span class="cell-auto" style="text-align: right; color: #38bdf8;">${sumSaleVal}</span>
+            <span class="cell-auto cell-sum-sale" style="text-align: right; color: #38bdf8; font-weight: 600; display: block;">${sumSaleVal}</span>
+          </td>
+
+          <!-- Rang (Inline Tag Input with Autocomplete & Top 10 Pills - ENG OXIRGI USTUN!) -->
+          <td class="cell-color-td" data-row="${idx}">
+            <div class="color-tag-cell" id="color-cell-${idx}">
+              ${((row.colors && row.colors.length) ? row.colors : (row.color ? [row.color] : [])).map(c => `
+                <span class="color-tag-chip">
+                  <span>${this.escapeHtml(c)}</span>
+                  <span class="color-tag-remove" data-row="${idx}" data-color="${this.escapeHtml(c)}">✕</span>
+                </span>
+              `).join('')}
+              <input type="text" class="color-tag-input ${isLowConf('color') ? 'cell-ai-highlight' : ''}" 
+                     data-row="${idx}" 
+                     data-field="color_tag_input"
+                     placeholder="${((row.colors && row.colors.length) || row.color) ? '+ rang' : 'Rang...'}" 
+                     autocomplete="off">
+            </div>
           </td>
 
           <!-- Action -->
@@ -380,38 +415,65 @@ const Grid = {
         const field = e.target.getAttribute('data-field');
         let val = e.target.value;
 
-        if (field === 'quantity' || field === 'price_buy' || field === 'price_sale') {
+        if (field === 'quantity' || field === 'price_buy' || field === 'price_sale' || field === 'markup_pct') {
           val = parseFloat(val) || 0;
         }
 
         if (this.rows[rowIdx]) {
           this.rows[rowIdx][field] = val;
+          this.rows[rowIdx].last_edited_field = field;
+
           // Trigger immediate recalculation for this row
           const calc = References.calculateRow(this.rows[rowIdx], rowIdx, this.baseCounter);
           this.rows[rowIdx].category = calc.category;
           this.rows[rowIdx].group_name = calc.group_name;
+          this.rows[rowIdx].code = calc.code;
           this.rows[rowIdx].articul = calc.articul;
           this.rows[rowIdx].full_name = calc.full_name;
           this.rows[rowIdx].markup_pct = calc.markup_pct;
+          this.rows[rowIdx].price_sale = calc.price_sale;
           this.rows[rowIdx].sum_buy = calc.sum_buy;
           this.rows[rowIdx].sum_sale = calc.sum_sale;
 
-          // Update related spans in same row without full re-render
+          // Update related spans and inputs in same row without full re-render
           const tr = e.target.closest('tr');
           if (tr) {
-            const spans = tr.querySelectorAll('.cell-auto, .cell-articul');
-            if (spans.length >= 6) {
-              spans[0].textContent = calc.category || '-';
-              spans[1].textContent = calc.group_name || '-';
-              spans[2].textContent = calc.articul || '-';
-              spans[3].textContent = calc.full_name || '-';
-              spans[4].textContent = `${calc.markup_pct}%`;
-              spans[5].textContent = `$${calc.sum_buy.toFixed(2)}`;
-              if (spans[6]) spans[6].textContent = `$${calc.sum_sale.toFixed(2)}`;
+            const elCat = tr.querySelector('.cell-cat');
+            if (elCat) elCat.textContent = calc.category || '-';
+            const elGrp = tr.querySelector('.cell-grp');
+            if (elGrp) elGrp.textContent = calc.group_name || '-';
+            const elCode = tr.querySelector('.cell-code');
+            if (elCode) elCode.textContent = calc.code || '-';
+            const elArt = tr.querySelector('.cell-articul');
+            if (elArt) elArt.textContent = calc.articul || '-';
+            const elName = tr.querySelector('.cell-name');
+            if (elName) elName.textContent = calc.full_name || '-';
+
+            // Bidirectional sync for markup_pct and price_sale
+            const inpMarkup = tr.querySelector('input[data-field="markup_pct"]');
+            if (inpMarkup && field !== 'markup_pct') {
+              inpMarkup.value = calc.markup_pct !== 0 ? calc.markup_pct : '';
+              inpMarkup.style.color = calc.markup_pct >= 30 ? '#4ade80' : calc.markup_pct > 0 ? '#fbbf24' : '#94a3b8';
             }
+            const inpSale = tr.querySelector('input[data-field="price_sale"]');
+            if (inpSale && field !== 'price_sale') {
+              inpSale.value = calc.price_sale !== 0 ? calc.price_sale : '';
+            }
+
+            const elSumBuy = tr.querySelector('.cell-sum-buy');
+            if (elSumBuy) elSumBuy.textContent = this.formatMoney(calc.sum_buy);
+            const elSumSale = tr.querySelector('.cell-sum-sale');
+            if (elSumSale) elSumSale.textContent = this.formatMoney(calc.sum_sale);
           }
           this.updateStats();
           this.triggerAutoSave();
+        }
+
+        // Live filter active reference dropdown if open
+        if (this.activeDropdown && this.activeDropdown.input === e.target) {
+          this.activeDropdown.filterQuery = e.target.value;
+          this.activeDropdown.selectedIndex = 0;
+          this.activeDropdown.render();
         }
       });
 
@@ -423,9 +485,310 @@ const Grid = {
         e.target.closest('tr')?.classList.add('selected');
       });
     });
+
+    // Setup Color Tag Inputs
+    // Setup Color Tag Inputs & Unified Assistant Panel
+    document.querySelectorAll('.color-tag-input').forEach(input => {
+      const rowIdx = parseInt(input.getAttribute('data-row'), 10);
+
+      input.addEventListener('focus', () => {
+        this.activeCell = { rowIndex: rowIdx, colKey: 'color' };
+        document.querySelectorAll('#grid-tbody tr').forEach(r => r.classList.remove('selected'));
+        input.closest('tr')?.classList.add('selected');
+        this.showColorAssistant(rowIdx, input);
+      });
+
+      input.addEventListener('input', () => {
+        this.showColorAssistant(rowIdx, input);
+      });
+
+      input.addEventListener('blur', () => {
+        setTimeout(() => {
+          if (!this.activeColorPanel?.contains(document.activeElement)) {
+            this.hideColorPopups();
+          }
+        }, 250);
+      });
+
+      input.addEventListener('keydown', (e) => {
+        // Ctrl + Enter: Apply multi-colors and clone
+        if (e.key === 'Enter' && e.ctrlKey) {
+          e.preventDefault();
+          e.stopPropagation();
+          this.applyInlineMultiColors(rowIdx);
+          return;
+        }
+
+        // Arrow navigation & Enter selection in unified panel
+        const panel = document.getElementById('grid-color-assistant-panel');
+        if (panel) {
+          const items = Array.from(panel.querySelectorAll('.color-suggest-item'));
+          let activeIdx = items.findIndex(el => el.classList.contains('active'));
+
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            if (items.length > 0) {
+              if (activeIdx < items.length - 1) activeIdx++;
+              else activeIdx = 0;
+              items.forEach((it, idx) => it.classList.toggle('active', idx === activeIdx));
+              if (items[activeIdx]) items[activeIdx].scrollIntoView({ block: 'nearest' });
+            }
+            return;
+          }
+
+          if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (items.length > 0) {
+              if (activeIdx > 0) activeIdx--;
+              else activeIdx = items.length - 1;
+              items.forEach((it, idx) => it.classList.toggle('active', idx === activeIdx));
+              if (items[activeIdx]) items[activeIdx].scrollIntoView({ block: 'nearest' });
+            }
+            return;
+          }
+
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            e.stopPropagation();
+            if (activeIdx >= 0 && items[activeIdx]) {
+              const selectedColor = items[activeIdx].getAttribute('data-color');
+              this.addInlineColor(rowIdx, selectedColor);
+            } else if (input.value.trim()) {
+              this.addInlineColor(rowIdx, input.value.trim());
+            }
+            input.value = '';
+            input.focus();
+            this.showColorAssistant(rowIdx, input);
+            return;
+          }
+        }
+
+        // If no panel open, but user hits Enter with text
+        if (e.key === 'Enter' && input.value.trim()) {
+          e.preventDefault();
+          e.stopPropagation();
+          this.addInlineColor(rowIdx, input.value.trim());
+          input.value = '';
+          input.focus();
+          this.showColorAssistant(rowIdx, input);
+          return;
+        }
+
+        // ArrowLeft moves to price_sale if empty
+        if (e.key === 'ArrowLeft' && !input.value) {
+          e.preventDefault();
+          const prevEl = document.querySelector(`.cell-input[data-row="${rowIdx}"][data-field="price_sale"]`);
+          if (prevEl) { prevEl.focus(); prevEl.select(); }
+          return;
+        }
+
+        // ArrowRight moves to next row country if empty
+        if (e.key === 'ArrowRight' && !input.value && rowIdx < this.rows.length - 1) {
+          e.preventDefault();
+          const nextEl = document.querySelector(`.cell-input[data-row="${rowIdx + 1}"][data-field="${this.EDITABLE_FIELDS[0]}"]`);
+          if (nextEl) { nextEl.focus(); nextEl.select(); }
+          return;
+        }
+
+        // Backspace on empty input removes last color chip
+        if (e.key === 'Backspace' && !input.value) {
+          const row = this.rows[rowIdx];
+          if (row && row.colors && row.colors.length > 0) {
+            row.colors.pop();
+            row.color = row.colors.length > 0 ? row.colors[0] : "";
+            this.recalculateAll();
+            this.render();
+            setTimeout(() => {
+              const inp = document.querySelector(`.color-tag-input[data-row="${rowIdx}"]`);
+              if (inp) {
+                inp.focus();
+                this.showColorAssistant(rowIdx, inp);
+              }
+            }, 50);
+          }
+        }
+      });
+    });
+
+    // Make clicking anywhere inside .cell-color-td reliably focus input & open assistant
+    document.querySelectorAll('.cell-color-td').forEach(td => {
+      td.addEventListener('mousedown', (e) => {
+        if (e.target.closest('.color-tag-remove')) return;
+        const rowIdx = parseInt(td.getAttribute('data-row'), 10);
+        const input = td.querySelector('.color-tag-input');
+        if (input) {
+          setTimeout(() => {
+            input.focus();
+            this.showColorAssistant(rowIdx, input);
+          }, 10);
+        }
+      });
+    });
+
+    // Color Tag Remove click handlers
+    document.querySelectorAll('.color-tag-remove').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const rowIdx = parseInt(btn.getAttribute('data-row'), 10);
+        const colorName = btn.getAttribute('data-color');
+        this.removeInlineColor(rowIdx, colorName, e);
+      });
+    });
+  },
+
+  EDITABLE_FIELDS: [
+    'country',
+    'product_type',
+    'brand',
+    'factory_code',
+    'collection',
+    'season',
+    'size',
+    'description',
+    'quantity',
+    'price_buy',
+    'markup_pct',
+    'price_sale',
+    'color'
+  ],
+
+  activeDropdown: null,
+
+  closeReferenceDropdown() {
+    const existing = document.getElementById('grid-floating-dropdown');
+    if (existing) {
+      existing.remove();
+    }
+    this.activeDropdown = null;
+  },
+
+  getReferenceOptions(field) {
+    let raw = [];
+    if (field === 'product_type') {
+      raw = (References.data.product_types || []).map(p => typeof p === 'object' ? p.name : p);
+    } else if (field === 'brand') {
+      raw = (References.data.brands || []).map(b => typeof b === 'object' ? b.name : b);
+    } else if (field === 'collection') {
+      raw = (References.data.seasons || []).map(s => typeof s === 'object' ? s.collection : s);
+    } else if (field === 'season') {
+      raw = (References.data.season_types || []).map(st => typeof st === 'object' ? st.name : st);
+    } else if (field === 'size') {
+      if (References.data.sizes && References.data.sizes.length > 0) {
+        raw = References.data.sizes.map(s => typeof s === 'object' ? s.name : s);
+      } else {
+        raw = References.defaultSizes || ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL'];
+      }
+    } else if (field === 'country') {
+      raw = (References.data.countries || []).map(c => typeof c === 'object' ? c.name : c);
+    } else if (field === 'description') {
+      raw = (References.data.colors || []).map(c => typeof c === 'object' ? c.name : c);
+    }
+
+    const seen = new Set();
+    const res = [];
+    raw.forEach(item => {
+      const s = String(item || '').trim();
+      if (s && !seen.has(s.toLowerCase())) {
+        seen.add(s.toLowerCase());
+        res.push(s);
+      }
+    });
+    return res;
+  },
+
+  openReferenceDropdown(inputEl, field) {
+    this.closeReferenceDropdown();
+    const allOptions = this.getReferenceOptions(field);
+    if (!allOptions || allOptions.length === 0) return;
+
+    const dropdown = document.createElement('div');
+    dropdown.id = 'grid-floating-dropdown';
+    dropdown.className = 'grid-floating-dropdown';
+
+    const rect = inputEl.getBoundingClientRect();
+    dropdown.style.top = `${rect.bottom + window.scrollY + 2}px`;
+    dropdown.style.left = `${rect.left + window.scrollX}px`;
+    dropdown.style.minWidth = `${Math.max(rect.width, 180)}px`;
+
+    let selectedIdx = 0;
+    const currentVal = (inputEl.value || '').toLowerCase().trim();
+    const initialMatchIdx = allOptions.findIndex(o => o.toLowerCase() === currentVal);
+    if (initialMatchIdx !== -1) {
+      selectedIdx = initialMatchIdx;
+    }
+
+    const state = {
+      el: dropdown,
+      input: inputEl,
+      field: field,
+      options: allOptions,
+      filterQuery: '',
+      getFiltered: function() {
+        const q = (this.filterQuery || '').toLowerCase().trim();
+        return q ? allOptions.filter(o => o.toLowerCase().includes(q)) : allOptions;
+      },
+      selectedIndex: selectedIdx
+    };
+
+    const renderList = () => {
+      const filtered = state.getFiltered();
+
+      if (filtered.length === 0) {
+        dropdown.innerHTML = `<div style="padding: 8px 10px; color: var(--text-dim); font-size: 0.75rem; text-align: center;">Mos keluvchi ma'lumot topilmadi</div>`;
+        return;
+      }
+
+      if (state.selectedIndex < 0) state.selectedIndex = 0;
+      if (state.selectedIndex >= filtered.length) state.selectedIndex = filtered.length - 1;
+
+      dropdown.innerHTML = filtered.map((opt, i) => `
+        <div class="grid-dropdown-item ${i === state.selectedIndex ? 'active' : ''}" data-idx="${i}" data-val="${this.escapeHtml(opt)}">
+          ${this.escapeHtml(opt)}
+        </div>
+      `).join('');
+
+      dropdown.querySelectorAll('.grid-dropdown-item').forEach(item => {
+        item.onmousedown = (e) => {
+          e.preventDefault();
+          const chosen = item.getAttribute('data-val');
+          this.applyDropdownSelection(inputEl, chosen);
+        };
+      });
+
+      const activeEl = dropdown.querySelector('.grid-dropdown-item.active');
+      if (activeEl) {
+        activeEl.scrollIntoView({ block: 'nearest' });
+      }
+    };
+
+    state.render = renderList;
+    this.activeDropdown = state;
+
+    renderList();
+    document.body.appendChild(dropdown);
+  },
+
+  applyDropdownSelection(inputEl, value) {
+    if (!inputEl) return;
+    inputEl.value = value;
+    inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+    this.closeReferenceDropdown();
+    inputEl.focus();
+    inputEl.select();
   },
 
   setupKeyboardEvents() {
+    // Close dropdown on click outside
+    document.addEventListener('click', (e) => {
+      if (this.activeDropdown) {
+        const dropdownEl = document.getElementById('grid-floating-dropdown');
+        if (dropdownEl && !dropdownEl.contains(e.target) && e.target !== this.activeDropdown.input) {
+          this.closeReferenceDropdown();
+        }
+      }
+    });
+
     document.addEventListener('keydown', (e) => {
       const activeEl = document.activeElement;
       if (!activeEl || !activeEl.classList.contains('cell-input')) return;
@@ -433,12 +796,55 @@ const Grid = {
       const currentRow = parseInt(activeEl.getAttribute('data-row'), 10);
       const currentField = activeEl.getAttribute('data-field');
 
+      // 1. Alt + ArrowDown -> Open Reference Dropdown (Spisok dannix)
+      if (e.altKey && e.key === 'ArrowDown') {
+        e.preventDefault();
+        e.stopPropagation();
+        this.openReferenceDropdown(activeEl, currentField);
+        return;
+      }
+
+      // If reference dropdown is currently open:
+      if (this.activeDropdown) {
+        const currentList = this.activeDropdown.getFiltered();
+
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          this.activeDropdown.selectedIndex = Math.min(currentList.length - 1, this.activeDropdown.selectedIndex + 1);
+          this.activeDropdown.render();
+          return;
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          this.activeDropdown.selectedIndex = Math.max(0, this.activeDropdown.selectedIndex - 1);
+          this.activeDropdown.render();
+          return;
+        }
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          const chosen = currentList[this.activeDropdown.selectedIndex];
+          if (chosen) {
+            this.applyDropdownSelection(activeEl, chosen);
+          } else {
+            this.closeReferenceDropdown();
+          }
+          return;
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          this.closeReferenceDropdown();
+          return;
+        }
+      }
+
       // Ctrl + D -> Duplicate Row
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
         e.preventDefault();
         this.duplicateRow(currentRow);
         return;
       }
+
+      const colIdx = this.EDITABLE_FIELDS.indexOf(currentField);
 
       // Enter -> Move Down to next row, or add row if at the end
       if (e.key === 'Enter') {
@@ -456,24 +862,72 @@ const Grid = {
         return;
       }
 
-      // Arrow Down
-      if (e.key === 'ArrowDown' && activeEl.tagName !== 'SELECT') {
+      // Arrow Down (without Alt)
+      if (e.key === 'ArrowDown' && !e.altKey && activeEl.tagName !== 'SELECT') {
         const nextInput = document.querySelector(`.cell-input[data-row="${currentRow + 1}"][data-field="${currentField}"]`);
         if (nextInput) {
           e.preventDefault();
           nextInput.focus();
+          nextInput.select();
         }
         return;
       }
 
-      // Arrow Up
-      if (e.key === 'ArrowUp' && activeEl.tagName !== 'SELECT') {
+      // Arrow Up (without Alt)
+      if (e.key === 'ArrowUp' && !e.altKey && activeEl.tagName !== 'SELECT') {
         const prevInput = document.querySelector(`.cell-input[data-row="${currentRow - 1}"][data-field="${currentField}"]`);
         if (prevInput) {
           e.preventDefault();
           prevInput.focus();
+          prevInput.select();
         }
         return;
+      }
+
+      // Arrow Right (Excel-style: move right when at the end of text or fully selected)
+      if (e.key === 'ArrowRight' && !e.altKey) {
+        const isAtEnd = (activeEl.selectionStart === activeEl.selectionEnd) && (activeEl.selectionStart === activeEl.value.length);
+        const isAllSelected = (activeEl.selectionStart === 0 && activeEl.selectionEnd === activeEl.value.length);
+        if (isAtEnd || isAllSelected || activeEl.type === 'number') {
+          e.preventDefault();
+          if (colIdx !== -1 && colIdx < this.EDITABLE_FIELDS.length - 1) {
+            const nextField = this.EDITABLE_FIELDS[colIdx + 1];
+            let nextEl = document.querySelector(`.cell-input[data-row="${currentRow}"][data-field="${nextField}"]`);
+            if (!nextEl && (nextField === 'color' || nextField === 'color_tag_input')) {
+              nextEl = document.querySelector(`.color-tag-input[data-row="${currentRow}"]`);
+            }
+            if (nextEl) {
+              nextEl.focus();
+              if (typeof nextEl.select === 'function') nextEl.select();
+            }
+          } else if (colIdx === this.EDITABLE_FIELDS.length - 1 && currentRow < this.rows.length - 1) {
+            const nextEl = document.querySelector(`.cell-input[data-row="${currentRow + 1}"][data-field="${this.EDITABLE_FIELDS[0]}"]`);
+            if (nextEl) {
+              nextEl.focus();
+              if (typeof nextEl.select === 'function') nextEl.select();
+            }
+          }
+          return;
+        }
+      }
+
+      // Arrow Left (Excel-style: move left when at start of text or fully selected)
+      if (e.key === 'ArrowLeft' && !e.altKey) {
+        const isAtStart = (activeEl.selectionStart === 0 && activeEl.selectionEnd === 0);
+        const isAllSelected = (activeEl.selectionStart === 0 && activeEl.selectionEnd === activeEl.value.length);
+        if (isAtStart || isAllSelected || activeEl.type === 'number') {
+          e.preventDefault();
+          if (colIdx > 0) {
+            const prevField = this.EDITABLE_FIELDS[colIdx - 1];
+            const prevEl = document.querySelector(`.cell-input[data-row="${currentRow}"][data-field="${prevField}"]`);
+            if (prevEl) { prevEl.focus(); prevEl.select(); }
+          } else if (colIdx === 0 && currentRow > 0) {
+            const lastField = this.EDITABLE_FIELDS[this.EDITABLE_FIELDS.length - 1];
+            const prevEl = document.querySelector(`.cell-input[data-row="${currentRow - 1}"][data-field="${lastField}"]`);
+            if (prevEl) { prevEl.focus(); prevEl.select(); }
+          }
+          return;
+        }
       }
     });
   },
@@ -502,10 +956,12 @@ const Grid = {
         store_name: document.getElementById('header-store')?.selectedOptions[0]?.text || '',
         counterparty_id: document.getElementById('header-counterparty')?.value,
         counterparty_name: document.getElementById('header-counterparty')?.selectedOptions[0]?.text || '',
-        currency: document.getElementById('header-currency')?.value || 'USD'
+        currency: document.getElementById('header-currency')?.value || 'UZS',
+        draft_id: this.activeDraftId
       };
 
       const payload = {
+        draft_id: this.activeDraftId,
         header: headerData,
         rows: this.rows
       };
@@ -517,6 +973,10 @@ const Grid = {
       });
 
       if (resp.ok) {
+        const res = await resp.json();
+        if (res.draft_id) {
+          this.activeDraftId = res.draft_id;
+        }
         this.isDirty = false;
         const badge = document.getElementById('save-status');
         if (badge) badge.textContent = "Qoralama saqlandi (" + new Date().toLocaleTimeString() + ")";
@@ -526,70 +986,550 @@ const Grid = {
     }
   },
 
-  async loadDraft() {
+  async loadDraft(draftId = null) {
     try {
-      const resp = await fetch('/api/documents/draft');
+      const targetId = draftId || this.activeDraftId;
+      const url = targetId ? `/api/documents/draft/${targetId}` : '/api/documents/draft';
+      const resp = await fetch(url);
       if (resp.ok) {
         const draft = await resp.json();
+        if (draft.id) {
+          this.activeDraftId = draft.id;
+        }
         if (draft.rows && draft.rows.length > 0) {
           this.rows = draft.rows;
         }
         if (draft.header) {
           if (draft.header.date) document.getElementById('header-date').value = draft.header.date;
           if (draft.header.doc_number) document.getElementById('header-doc-number').value = draft.header.doc_number;
-          if (draft.header.currency) document.getElementById('header-currency').value = draft.header.currency;
+          if (draft.header.store_id) document.getElementById('header-store').value = draft.header.store_id;
+          if (draft.header.counterparty_id) document.getElementById('header-counterparty').value = draft.header.counterparty_id;
+          const cur = (draft.header.currency === 'USD') ? 'USD' : 'UZS';
+          const curSelect = document.getElementById('header-currency');
+          if (curSelect) curSelect.value = cur;
         }
+        this.recalculateAll();
+        this.render();
       }
     } catch (e) {
       console.error("Load draft error:", e);
     }
   },
 
-  exportToCSV() {
+
+  setupHeaderActions() {
+    // 1. Fullscreen toggle button
+    document.getElementById('btn-toggle-fullscreen')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      this.toggleFullscreen();
+    });
+
+    // 2. Save draft button
+    document.getElementById('btn-save-draft-top')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      this.saveDraft();
+      if (typeof showToast === 'function') showToast("Qoralama saqlandi!", "success");
+    });
+
+    // 3. Clear grid button
+    document.getElementById('btn-clear-grid')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      this.clearGrid();
+    });
+
+    // 4. Back button
+    document.getElementById('btn-back-to-supplies')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      SuppliesList.closeGridReceiptView();
+    });
+
+    // 5. Global Escape to close fullscreen or popups
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        if (this.isFullscreen) this.toggleFullscreen();
+        this.hideColorPopups();
+        this.closeReferenceDropdown();
+      }
+    });
+
+    // 6. Global Click to close Color Popups if clicked outside
+    document.addEventListener('mousedown', (e) => {
+      if (this.activeColorPanel || document.getElementById('grid-color-assistant-panel') || this.activeQuickBar || this.activeColorAutocomplete) {
+        const isInsideCell = e.target.closest('.cell-color-td') || e.target.closest('.color-tag-cell');
+        const isInsidePanel = e.target.closest('#grid-color-assistant-panel') || e.target.closest('#grid-color-quick-bar') || e.target.closest('#grid-color-autocomplete');
+        if (!isInsideCell && !isInsidePanel) {
+          this.hideColorPopups();
+        }
+      }
+    });
+  },
+
+  // Fullscreen Mode Controller
+  isFullscreen: false,
+
+  toggleFullscreen() {
+    const gridView = document.getElementById('supplies-grid-view');
+    const iconEl = document.getElementById('fullscreen-icon');
+    const labelEl = document.getElementById('fullscreen-label');
+    if (!gridView) return;
+
+    this.isFullscreen = !this.isFullscreen;
+    if (this.isFullscreen) {
+      gridView.classList.add('grid-fullscreen-mode');
+      document.body.classList.add('grid-fullscreen-active');
+      if (iconEl) iconEl.textContent = '🗗';
+      if (labelEl) labelEl.textContent = 'Kichraytirish';
+      try {
+        if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
+          document.documentElement.requestFullscreen().catch(() => {});
+        }
+      } catch (err) {}
+    } else {
+      gridView.classList.remove('grid-fullscreen-mode');
+      document.body.classList.remove('grid-fullscreen-active');
+      if (iconEl) iconEl.textContent = '⛶';
+      if (labelEl) labelEl.textContent = 'Katta ekran';
+      try {
+        if (document.exitFullscreen && document.fullscreenElement) {
+          document.exitFullscreen().catch(() => {});
+        }
+      } catch (err) {}
+    }
+  },
+
+  // ================= INLINE MULTI-COLOR & QUICK PILLS SYSTEM =================
+  activeColorPanel: null,
+  activeQuickBar: null,
+  activeColorAutocomplete: null,
+
+  showColorAssistant(rowIdx, inputEl) {
+    this.hideColorPopups();
+    if (!inputEl) return;
+    const cell = inputEl.closest('.cell-color-td') || inputEl.closest('.color-tag-cell') || inputEl;
+    if (!cell) return;
+
+    const panel = document.createElement('div');
+    panel.className = 'color-popover-panel';
+    panel.id = 'grid-color-assistant-panel';
+
+    const cellRect = cell.getBoundingClientRect();
+    const panelWidth = 460;
+    const panelHeight = 250;
+
+    // Smart Floating Positioning:
+    // Color cell is on the right of the table. Position panel to the LEFT of the cell
+    // so it is 100% visible on screen without requiring any scrolling.
+    let leftPos = cellRect.left - panelWidth - 8;
+    if (leftPos < 10) {
+      leftPos = Math.max(10, cellRect.right - panelWidth);
+    }
+    panel.style.left = leftPos + 'px';
+    panel.style.width = panelWidth + 'px';
+
+    // Vertical positioning: keep inside viewport (never cut off below screen)
+    let topPos = cellRect.top - 10;
+    if (topPos + panelHeight > window.innerHeight - 15) {
+      topPos = Math.max(10, window.innerHeight - panelHeight - 15);
+    }
+    if (topPos < 10) topPos = 10;
+    panel.style.top = topPos + 'px';
+
+    // Prevent input blur when clicking inside panel
+    panel.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+
+    const grid = document.createElement('div');
+    grid.className = 'color-popover-grid';
+
+    // LEFT COLUMN: Quick popular colors (1-click)
+    const colLeft = document.createElement('div');
+    colLeft.className = 'color-popover-col-left';
+    colLeft.innerHTML = `
+      <div class="color-popover-header">
+        <span>⚡ Tezkor ranglar</span>
+      </div>
+      <div class="color-pills-container"></div>
+    `;
+    const pillsContainer = colLeft.querySelector('.color-pills-container');
+    const topColors = (typeof References.getTopColors === 'function')
+      ? References.getTopColors()
+      : [
+          { name: 'Бежевый' }, { name: 'Белый' }, { name: 'Зеленый' }, { name: 'Коричневый' },
+          { name: 'Хаки' }, { name: 'Красный' }, { name: 'Серый' }, { name: 'Синий' },
+          { name: 'Темно-синий' }, { name: 'Черный' }, { name: 'Мультиколор' }
+        ];
+
+    topColors.forEach(c => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'color-pill-btn';
+      btn.textContent = c.name;
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.addInlineColor(rowIdx, c.name);
+        inputEl.value = '';
+        inputEl.focus();
+        this.showColorAssistant(rowIdx, inputEl);
+      });
+      pillsContainer.appendChild(btn);
+    });
+
+    // RIGHT COLUMN: All colors & live search suggestions
+    const colRight = document.createElement('div');
+    colRight.className = 'color-popover-col-right';
+
+    const q = (inputEl.value || '').trim().toLowerCase();
+    const allColors = (References.data && References.data.colors) || [];
+
+    const matches = allColors.filter(c => {
+      const name = typeof c === 'object' ? (c.name || '') : String(c);
+      const code = typeof c === 'object' ? (c.short_code || '') : '';
+      if (!q) return true;
+      return name.toLowerCase().includes(q) || code.toLowerCase().includes(q);
+    });
+
+    colRight.innerHTML = `
+      <div class="color-popover-header">
+        <span>🔍 Variantlar</span>
+        <span class="color-matches-badge">${matches.length} ta</span>
+      </div>
+      <ul class="color-suggest-list"></ul>
+    `;
+
+    const suggestList = colRight.querySelector('.color-suggest-list');
+    if (matches.length === 0) {
+      suggestList.innerHTML = `
+        <div class="color-no-match">
+          "${this.escapeHtml(inputEl.value)}" bo'yicha rang topilmadi.<br>
+          <span style="opacity:0.8; font-size:0.7rem; color: #f59e0b;">Enter bosilsa yangi rang sifatida qo'shiladi</span>
+        </div>
+      `;
+    } else {
+      matches.forEach((c, idx) => {
+        const cName = typeof c === 'object' ? (c.name || '') : String(c);
+        const cCode = typeof c === 'object' ? (c.short_code || '') : '';
+        const li = document.createElement('li');
+        li.className = `color-suggest-item ${idx === 0 ? 'active' : ''}`;
+        li.setAttribute('data-color', cName);
+        li.innerHTML = `
+          <span>${this.escapeHtml(cName)}</span>
+          <span class="color-item-code">${this.escapeHtml(cCode)}</span>
+        `;
+        li.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          this.addInlineColor(rowIdx, cName);
+          inputEl.value = '';
+          inputEl.focus();
+          this.showColorAssistant(rowIdx, inputEl);
+        });
+        suggestList.appendChild(li);
+      });
+    }
+
+    grid.appendChild(colLeft);
+    grid.appendChild(colRight);
+    panel.appendChild(grid);
+
+    document.body.appendChild(panel);
+    this.activeColorPanel = panel;
+  },
+
+  showQuickColorBar(rowIdx, inputEl) {
+    this.showColorAssistant(rowIdx, inputEl);
+  },
+
+  showColorAutocomplete(rowIdx, inputEl) {
+    this.showColorAssistant(rowIdx, inputEl);
+  },
+
+  hideColorPopups() {
+    if (this.activeColorPanel) {
+      this.activeColorPanel.remove();
+      this.activeColorPanel = null;
+    }
+    const panel = document.getElementById('grid-color-assistant-panel');
+    if (panel) panel.remove();
+    if (this.activeQuickBar) {
+      this.activeQuickBar.remove();
+      this.activeQuickBar = null;
+    }
+    const qb = document.getElementById('grid-color-quick-bar');
+    if (qb) qb.remove();
+    if (this.activeColorAutocomplete) {
+      this.activeColorAutocomplete.remove();
+      this.activeColorAutocomplete = null;
+    }
+    const ac = document.getElementById('grid-color-autocomplete');
+    if (ac) ac.remove();
+  },
+
+  addInlineColor(rowIdx, colorName) {
+    const clean = String(colorName || '').trim();
+    if (!clean) return;
+    const row = this.rows[rowIdx];
+    if (!row) return;
+
+    if (!row.colors) row.colors = [];
+    if (!row.colors.includes(clean)) {
+      row.colors.push(clean);
+      row.color = row.colors[0];
+    }
+
+    // Update row in memory
+    const calc = References.calculateRow(row, rowIdx, this.baseCounter);
+    row.articul = calc.articul;
+    row.full_name = calc.full_name;
+
+    // Targeted DOM update of this specific row WITHOUT re-rendering table!
+    const tr = document.querySelectorAll('#grid-tbody tr')[rowIdx];
+    if (tr) {
+      const cell = tr.querySelector('.color-tag-cell');
+      if (cell) {
+        const input = cell.querySelector('.color-tag-input');
+        // Remove existing chips
+        cell.querySelectorAll('.color-tag-chip').forEach(el => el.remove());
+        // Insert chips
+        row.colors.forEach(c => {
+          const chip = document.createElement('span');
+          chip.className = 'color-tag-chip';
+          chip.innerHTML = `<span>${this.escapeHtml(c)}</span><span class="color-tag-remove">✕</span>`;
+          chip.querySelector('.color-tag-remove').addEventListener('click', (e) => {
+            this.removeInlineColor(rowIdx, c, e);
+          });
+          cell.insertBefore(chip, input);
+        });
+
+        if (input) {
+          input.value = '';
+          input.placeholder = '+ rang';
+          input.focus();
+        }
+      }
+
+      const elArt = tr.querySelector('.cell-articul');
+      if (elArt) elArt.textContent = calc.articul || '-';
+      const elName = tr.querySelector('.cell-name');
+      if (elName) elName.textContent = calc.full_name || '-';
+    }
+
+    this.updateStats();
+    this.triggerAutoSave();
+  },
+
+  removeInlineColor(rowIdx, colorName, event) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    const row = this.rows[rowIdx];
+    if (!row || !row.colors) return;
+
+    row.colors = row.colors.filter(c => c !== colorName);
+    row.color = row.colors.length > 0 ? row.colors[0] : "";
+
+    const calc = References.calculateRow(row, rowIdx, this.baseCounter);
+    row.articul = calc.articul;
+    row.full_name = calc.full_name;
+
+    const tr = document.querySelectorAll('#grid-tbody tr')[rowIdx];
+    if (tr) {
+      const cell = tr.querySelector('.color-tag-cell');
+      if (cell) {
+        cell.querySelectorAll('.color-tag-chip').forEach(el => {
+          if (el.querySelector('span').textContent === colorName) el.remove();
+        });
+        const input = cell.querySelector('.color-tag-input');
+        if (input) {
+          input.placeholder = row.colors.length > 0 ? '+ rang' : 'Rang...';
+          input.focus();
+        }
+      }
+      const elArt = tr.querySelector('.cell-articul');
+      if (elArt) elArt.textContent = calc.articul || '-';
+      const elName = tr.querySelector('.cell-name');
+      if (elName) elName.textContent = calc.full_name || '-';
+    }
+
+    this.updateStats();
+    this.triggerAutoSave();
+  },
+
+  applyInlineMultiColors(rowIdx) {
+    const row = this.rows[rowIdx];
+    if (!row) return;
+
+    // Check if input has pending text
+    const input = document.querySelector(`.color-tag-input[data-row="${rowIdx}"]`);
+    if (input && input.value.trim()) {
+      const text = input.value.trim();
+      const match = (References.data.colors || []).find(c => c.name.toLowerCase() === text.toLowerCase());
+      const cName = match ? match.name : text;
+      if (!row.colors) row.colors = [];
+      if (!row.colors.includes(cName)) row.colors.push(cName);
+      input.value = '';
+    }
+
+    this.hideColorPopups();
+
+    const colors = row.colors && row.colors.length > 0 ? row.colors : (row.color ? [row.color] : []);
+
+    if (colors.length > 1) {
+      // 1st color stays on rowIdx
+      row.color = colors[0];
+      row.colors = [colors[0]];
+
+      // Create new clone rows for remaining colors with IDENTICAL model_code and factory_code
+      for (let i = 1; i < colors.length; i++) {
+        const cColor = colors[i];
+        const clone = JSON.parse(JSON.stringify(row));
+        clone.color = cColor;
+        clone.colors = [cColor];
+        clone.factory_code = row.factory_code;
+        clone.model_code = row.model_code; // UNCHANGED MODEL CODE!
+        clone.code = "";
+        clone.articul = "";
+        clone.custom_articul = false;
+        this.rows.splice(rowIdx + i, 0, clone);
+      }
+
+      // Check if last row is already an empty row
+      const last = this.rows[this.rows.length - 1];
+      const isLastEmpty = last && !last.product_type && !last.brand && !last.description && !(parseFloat(last.price_buy) || 0);
+      if (!isLastEmpty) {
+        this.rows.push(this.createEmptyRow());
+      }
+
+      this.recalculateAll();
+      this.render();
+
+      if (typeof showToast === 'function') {
+        showToast(`⚡ Model bo'yicha ${colors.length} ta rang qatori yaratildi!`, "success");
+      }
+
+      // Focus on the COUNTRY (Страна) field of the next new empty row!
+      const targetRowIndex = this.rows.length - 1;
+      setTimeout(() => {
+        const nextInput = document.querySelector(`input[data-field="country"][data-row="${targetRowIndex}"]`);
+        if (nextInput) {
+          nextInput.focus();
+          nextInput.select();
+        }
+      }, 80);
+    } else {
+      // Single color or empty: proceed to next row or create one
+      if (rowIdx === this.rows.length - 1) {
+        this.addEmptyRows(1);
+      }
+      setTimeout(() => {
+        const nextInput = document.querySelector(`input[data-field="country"][data-row="${rowIdx + 1}"]`);
+        if (nextInput) {
+          nextInput.focus();
+          nextInput.select();
+        }
+      }, 80);
+    }
+  },
+
+  exportToExcel() {
     if (this.rows.length === 0) return alert("Eksport qilish uchun jadvalda ma'lumot yo'q!");
 
     const headers = [
-      "№", "Страна", "Вид товара", "Категория", "Группа", "Бренд", "Коллекция",
-      "Сезон", "Размер", "Описание", "Код модели", "Артикул", "Наименование",
-      "Количество", "Цена закупа", "Цена продажи", "Надценка %", "Сумма закупа", "Сумма продажи"
+      "№",
+      "Страна",
+      "Вид товара",
+      "Категория",
+      "Группа",
+      "Бренд",
+      "Код модели",
+      "Коллекция",
+      "Сезон",
+      "Размер",
+      "Описание",
+      "Модель",
+      "Код",
+      "Артикул",
+      "Наименование",
+      "Количество",
+      "Цена закупа",
+      "Цена продажи",
+      "Цвет"
     ];
 
-    const rowsData = this.rows.map((r, i) => [
-      i + 1,
-      r.country || "",
-      r.product_type || "",
-      r.category || "",
-      r.group_name || "",
-      r.brand || "",
-      r.collection || "",
-      r.season || "",
-      r.size || "",
-      r.description || "",
-      r.model_code || "",
-      r.articul || "",
-      r.full_name || "",
-      r.quantity || 0,
-      r.price_buy || 0,
-      r.price_sale || 0,
-      r.markup_pct || 0,
-      r.sum_buy || 0,
-      r.sum_sale || 0
-    ]);
+    let tableHtml = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+<meta charset="utf-8">
+<!--[if gte mso 9]>
+<xml>
+ <x:ExcelWorkbook>
+  <x:ExcelWorksheets>
+   <x:ExcelWorksheet>
+    <x:Name>Kirim Hujjati</x:Name>
+    <x:WorksheetOptions>
+     <x:DisplayGridlines/>
+    </x:WorksheetOptions>
+   </x:ExcelWorksheet>
+  </x:ExcelWorksheets>
+ </x:ExcelWorkbook>
+</xml>
+<![endif]-->
+<style>
+  th { background-color: #f59e0b; color: #000000; font-weight: bold; border: 1px solid #cccccc; padding: 6px; }
+  td { border: 1px solid #cccccc; padding: 4px; font-family: Arial, sans-serif; font-size: 11pt; }
+  .num { mso-number-format: "\\#\\,\\#\\#0"; text-align: right; }
+  .center { text-align: center; }
+</style>
+</head>
+<body>
+<table border="1">
+<thead>
+<tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr>
+</thead>
+<tbody>`;
 
-    let csvContent = "\uFEFF"; // UTF-8 BOM
-    csvContent += headers.join(";") + "\r\n";
-    rowsData.forEach(row => {
-      csvContent += row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(";") + "\r\n";
+    this.rows.forEach((r, i) => {
+      const colorsStr = (r.colors && r.colors.length > 0) ? r.colors.join(', ') : (r.color || '');
+      tableHtml += `<tr>
+        <td class="center">${i + 1}</td>
+        <td>${this.escapeHtml(r.country || '')}</td>
+        <td>${this.escapeHtml(r.product_type || '')}</td>
+        <td>${this.escapeHtml(r.category || '')}</td>
+        <td>${this.escapeHtml(r.group_name || '')}</td>
+        <td>${this.escapeHtml(r.brand || '')}</td>
+        <td>${this.escapeHtml(r.factory_code || '')}</td>
+        <td>${this.escapeHtml(r.collection || '')}</td>
+        <td>${this.escapeHtml(r.season || '')}</td>
+        <td>${this.escapeHtml(r.size || '')}</td>
+        <td>${this.escapeHtml(r.description || '')}</td>
+        <td class="center">${this.escapeHtml(r.model_code || '')}</td>
+        <td class="center">${this.escapeHtml(r.code || '')}</td>
+        <td>${this.escapeHtml(r.articul || '')}</td>
+        <td><b>${this.escapeHtml(r.full_name || '')}</b></td>
+        <td class="num">${r.quantity || 0}</td>
+        <td class="num">${r.price_buy || 0}</td>
+        <td class="num">${r.price_sale || 0}</td>
+        <td>${this.escapeHtml(colorsStr)}</td>
+      </tr>`;
     });
 
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    tableHtml += `</tbody></table></body></html>`;
+
+    const blob = new Blob([tableHtml], { type: "application/vnd.ms-excel;charset=utf-8;" });
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
+    const dateStr = new Date().toISOString().slice(0, 10);
     link.setAttribute("href", url);
-    link.setAttribute("download", `DeLuxury_Kirim_${new Date().toISOString().slice(0,10)}.csv`);
+    link.setAttribute("download", `DeLuxury_Kirim_${dateStr}.xls`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  },
+
+  exportToCSV() {
+    this.exportToExcel();
   },
 
   escapeHtml(str) {
