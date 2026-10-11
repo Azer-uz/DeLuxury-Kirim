@@ -137,6 +137,7 @@ const References = {
     // Model calculation: SeasonCode + GroupCode + 5-digit sequence (e.g. A26OBV00669)
     const sequenceNum = baseCounter + rowIndex + 1;
     const zeroPadded = String(sequenceNum).padStart(5, '0');
+    const calculatedModel = `${seasonCode}${groupCode}${zeroPadded}`;
     // Automatic model should ALWAYS be calculatedModel unless custom_model is explicitly set
     const modelCode = (row.custom_model && row.model_code && row.model_code.trim()) ? row.model_code.trim() : calculatedModel;
 
