@@ -682,7 +682,7 @@ const Grid = {
     } else if (field === 'country') {
       raw = (References.data.countries || []).map(c => typeof c === 'object' ? c.name : c);
     } else if (field === 'description') {
-      raw = (References.data.colors || []).map(c => typeof c === 'object' ? c.name : c);
+      raw = []; // Opisanie (Izoh) matnli maydon, ranglar bu yerga tushmaydi
     }
 
     const seen = new Set();

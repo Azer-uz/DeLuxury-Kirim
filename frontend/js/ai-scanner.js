@@ -136,6 +136,23 @@ const AIScanner = {
   applyRowsToGrid() {
     if (!this.scannedRows || this.scannedRows.length === 0) return;
 
+    // Normalize: If description is a color name, move to color and keep description clean!
+    const allColors = (typeof References !== 'undefined' && References.data && References.data.colors) || [];
+    this.scannedRows.forEach(r => {
+      const descClean = (r.description || '').trim();
+      if (descClean) {
+        const isColor = allColors.some(c => (typeof c === 'object' ? c.name : c).toLowerCase() === descClean.toLowerCase());
+        if (isColor) {
+          if (!r.color) r.color = descClean;
+          if (!r.colors || r.colors.length === 0) r.colors = [descClean];
+          r.description = ''; // Rang opisaniyada qolmasligi kerak!
+        }
+      }
+      if (r.color && (!r.colors || r.colors.length === 0)) {
+        r.colors = [r.color];
+      }
+    });
+
     // Filter out initial blank rows from grid if user hasn't typed in them
     const existingUsefulRows = Grid.rows.filter(r => r.product_type || r.price_buy > 0);
     

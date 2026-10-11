@@ -46,7 +46,8 @@ Rasmdagi har bir tovar qatorini aniqlab, quyidagi JSON formatida qaytaring:
     "collection": "Коллекция (masalan: AW26, SS26, CONT)",
     "season": "Сезон (masalan: Весна-Осень, Зима, Лето)",
     "size": "Размер (masalan: S, M, L, XL, 42, 44, 46)",
-    "description": "Описание / Rang / Fason qisqa tavsifi",
+    "description": "Описание / Fason tavsifi (rang bu yerga YOZILMASIN, agar alohida izoh bo'lmasa bo'sh qoldiring: \"\")",
+    "color": "Цвет / Rang (ruscha, masalan: Молочный, Черный, Белый, Бежевый, Хаки, Синий)",
     "model_code": "Код модели (agar rasmda bo'lsa)",
     "quantity": 1.0 (soni),
     "price_buy": 15.0 (sotib olish narxi / tan narx),
@@ -58,8 +59,9 @@ Rasmdagi har bir tovar qatorini aniqlab, quyidagi JSON formatida qaytaring:
 
 QOIDALAR:
 1. Qatorlarni bo'sh qoldirmang, eng yaqin mos keladigan qiymatlarni tanlang.
-2. Agar biror qiymatga ishonchingiz komil bo'lmasa, confidence qiymatini 0.7 dan past qiling va low_confidence_fields ro'yxatiga o'sha maydon nomini kiriting.
-3. Faqat toza JSON array qaytaring (hech qanday qo'shimcha matnsiz).
+2. "description" maydoniga RANG YOZILMASIN! Rang faqat "color" maydoniga yoziladi. Agar alohida fason tavsifi bo'lmasa, "description" ni bo'sh qoldiring ("").
+3. Agar biror qiymatga ishonchingiz komil bo'lmasa, confidence qiymatini 0.7 dan past qiling va low_confidence_fields ro'yxatiga o'sha maydon nomini kiriting.
+4. Faqat toza JSON array qaytaring (hech qanday qo'shimcha matnsiz).
 
 Ma'lumotlar bazasidagi namunaviy turlar:
 {", ".join(known_vid[:40]) if known_vid else "Футболка, Джинсы, Куртка, Блузка, Свитер, Платье, Рубашка"}
