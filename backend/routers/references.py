@@ -136,11 +136,19 @@ def delete_product_type(pt_id: int, db: Session = Depends(get_db)):
 
 # ================= EXCEL/CSV IMPORT & EXPORT FOR IERARXIYA =================
 @router.post("/import-hierarchy-csv")
-async def import_hierarchy_csv(file: UploadFile = File(...), db: Session = Depends(get_db)):
-    """Import or bulk update Product types hierarchy from CSV/Excel."""
+async def import_hierarchy_csv(
+    file: UploadFile = File(...),
+    mode: str = "merge",
+    db: Session = Depends(get_db)
+):
+    """Import or bulk update Product types hierarchy from CSV/Excel. mode='merge' or 'replace'."""
     contents = await file.read()
     if not contents:
         raise HTTPException(status_code=400, detail="Fayl bo'sh")
+
+    if mode == "replace":
+        db.query(ProductType).delete()
+        db.commit()
 
     rows_data = []
     is_xlsx = (file.filename and file.filename.endswith(".xlsx")) or contents[:4] == b"PK\x03\x04"

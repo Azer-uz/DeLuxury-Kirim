@@ -697,6 +697,12 @@ function setupQuickAddModals() {
       return alert("Iltimos, avval faylni tanlang!");
     }
 
+    const selectedMode = document.querySelector('input[name="hierarchy-import-mode"]:checked')?.value || 'merge';
+    if (selectedMode === 'replace') {
+      const ok = confirm("⚠️ DIQQAT: 'To'liq almashtirish' rejimi tanlandi!\nBazadagi barcha eski tovar turlari o'chiriladi va faqat yangi fayldagilar qoladi.\n\nHaqiqatan ham davom ettirasizmi?");
+      if (!ok) return;
+    }
+
     const formData = new FormData();
     formData.append('file', fileInput.files[0]);
 
@@ -705,7 +711,7 @@ function setupQuickAddModals() {
     btn.textContent = "Yuklanmoqda...";
 
     try {
-      const resp = await fetch('/api/references/import-hierarchy-csv', {
+      const resp = await fetch(`/api/references/import-hierarchy-csv?mode=${selectedMode}`, {
         method: 'POST',
         body: formData
       });
@@ -721,7 +727,8 @@ function setupQuickAddModals() {
         renderReferencesUI('ref-product-types');
         Grid.recalculateAll();
         Grid.render();
-        showToast(`✅ ${data.total} ta mahsulot turi yangilandi (${data.imported_new} yangi, ${data.updated} o'zgartirildi)!`, "success");
+        const modeNotice = selectedMode === 'replace' ? "to'liq almashtirildi" : "yangilandi";
+        showToast(`✅ ${data.total} ta mahsulot turi ${modeNotice} (${data.imported_new} ta kiritildi)!`, "success");
       } else {
         alert(data.detail || data.message || "Importda xatolik yuz berdi");
       }
