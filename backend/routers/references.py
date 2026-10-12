@@ -142,18 +142,35 @@ async def import_hierarchy_csv(file: UploadFile = File(...), db: Session = Depen
     if not contents:
         raise HTTPException(status_code=400, detail="Fayl bo'sh")
 
-    try:
-        decoded = contents.decode("utf-8-sig")
-    except UnicodeDecodeError:
+    rows_data = []
+    is_xlsx = (file.filename and file.filename.endswith(".xlsx")) or contents[:4] == b"PK\x03\x04"
+    if is_xlsx:
         try:
-            decoded = contents.decode("cp1251")
-        except Exception:
-            decoded = contents.decode("latin1")
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(contents), data_only=True)
+            sheet = wb.active
+            all_excel_rows = list(sheet.iter_rows(values_only=True))
+            if not all_excel_rows:
+                raise HTTPException(status_code=400, detail="Excel fayli bo'sh")
+            header = [str(c or "").strip() for c in all_excel_rows[0]]
+            for r in all_excel_rows[1:]:
+                rows_data.append([str(c or "").strip() for c in r])
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Excel faylini o'qishda xatolik: {e}")
+    else:
+        try:
+            decoded = contents.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            try:
+                decoded = contents.decode("cp1251")
+            except Exception:
+                decoded = contents.decode("latin1")
 
-    reader = csv.reader(io.StringIO(decoded), delimiter=';' if ';' in decoded[:200] else ',')
-    header = next(reader, None)
-    if not header:
-        raise HTTPException(status_code=400, detail="CSV fayl sarlavhasi topilmadi")
+        reader = csv.reader(io.StringIO(decoded), delimiter=';' if ';' in decoded[:200] else ',')
+        header = next(reader, None)
+        if not header:
+            raise HTTPException(status_code=400, detail="CSV fayl sarlavhasi topilmadi")
+        rows_data = [r for r in reader]
 
     # Normalize header indices
     header_clean = [h.strip().lower() for h in header]
@@ -167,7 +184,7 @@ async def import_hierarchy_csv(file: UploadFile = File(...), db: Session = Depen
     imported_count = 0
     updated_count = 0
 
-    for row in reader:
+    for row in rows_data:
         if not row or len(row) <= vid_idx:
             continue
         vid_name = (row[vid_idx] or "").strip()
