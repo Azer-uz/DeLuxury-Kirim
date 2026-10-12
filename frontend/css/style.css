@@ -700,6 +700,42 @@ select.form-control {
   border: 1px dashed var(--accent-yellow) !important;
 }
 
+.cell-ambiguous {
+  border-color: #f59e0b !important;
+  background-color: rgba(245, 158, 11, 0.12) !important;
+}
+
+.alt-suggest-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 3px;
+}
+
+.badge-alt-suggest {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  background: rgba(245, 158, 11, 0.2);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  color: #fbbf24;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.badge-alt-suggest:hover {
+  background: rgba(245, 158, 11, 0.35);
+  border-color: #f59e0b;
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
 .cell-error {
   background-color: rgba(239, 68, 68, 0.2) !important;
   border: 1px solid var(--accent-red) !important;
@@ -890,6 +926,78 @@ select.form-control {
   align-items: center;
   justify-content: center;
   font-size: 1.75rem;
+}
+
+/* AI Preview Zone */
+.ai-preview-zone {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  background-color: rgba(14, 21, 38, 0.4);
+}
+
+.ai-preview-zone img {
+  object-fit: cover;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+/* AI Loading Zone */
+.ai-loading-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 1.5rem;
+  text-align: center;
+  gap: 1rem;
+}
+
+.ai-spinner {
+  width: 50px;
+  height: 50px;
+  border: 4px solid rgba(245, 158, 11, 0.2);
+  border-top-color: var(--accent-gold);
+  border-radius: 50%;
+  animation: spin 0.85s linear infinite;
+}
+
+.ai-btn-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+  vertical-align: middle;
+  margin-right: 0.4rem;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Light Theme overrides for AI Modal */
+body.theme-light .ai-dropzone {
+  background-color: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+body.theme-light .ai-dropzone:hover,
+body.theme-light .ai-dropzone.dragover {
+  border-color: #f59e0b;
+  background-color: #fffbeb;
+}
+
+body.theme-light .ai-preview-zone {
+  background-color: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+body.theme-light .ai-spinner {
+  border-color: rgba(245, 158, 11, 0.25);
+  border-top-color: #d97706;
 }
 
 /* Status Badges */
@@ -2922,4 +3030,173 @@ body.theme-light .color-item-code {
 
 body.theme-light .color-no-match {
   color: #64748b !important;
+}
+
+/* ============================================================
+   MOBILE RESPONSIVENESS & TOUCH ENHANCEMENTS (PHONE & TABLET)
+   ============================================================ */
+
+@media (max-width: 900px) {
+  .doc-header-card {
+    padding: 0.6rem 0.5rem !important;
+  }
+}
+
+@media (max-width: 768px) {
+  /* 1. Navbar Mobile Layout */
+  .navbar {
+    height: auto !important;
+    min-height: auto !important;
+    padding: 0.5rem 0.75rem !important;
+    flex-wrap: wrap !important;
+    gap: 0.5rem !important;
+  }
+
+  .nav-brand {
+    gap: 0.5rem !important;
+  }
+
+  .brand-title {
+    display: none !important; /* Keep prominent DE LUXURY badge */
+  }
+
+  .nav-status {
+    margin-left: auto !important;
+    gap: 0.35rem !important;
+  }
+
+  .nav-tabs {
+    order: 3 !important;
+    width: 100% !important;
+    overflow-x: auto !important;
+    white-space: nowrap !important;
+    -webkit-overflow-scrolling: touch !important;
+    scrollbar-width: none !important;
+    padding: 0.2rem !important;
+    justify-content: flex-start !important;
+    gap: 0.35rem !important;
+  }
+
+  .nav-tabs::-webkit-scrollbar {
+    display: none !important;
+  }
+
+  .nav-tab {
+    padding: 0.45rem 0.75rem !important;
+    font-size: 0.8rem !important;
+    flex-shrink: 0 !important;
+  }
+
+  /* 2. Document Header in Priyomka Grid View */
+  .doc-header-card > div {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 0.6rem !important;
+  }
+
+  .doc-header-card .header-field-stacked {
+    flex: 1 1 calc(50% - 0.5rem) !important;
+    min-width: 130px !important;
+  }
+
+  .doc-header-card .header-field-stacked input,
+  .doc-header-card .header-field-stacked select {
+    width: 100% !important;
+  }
+
+  /* 3. Excel Grid Touch Scrolling & Sticky Columns */
+  .table-responsive {
+    max-height: calc(100vh - 220px) !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  .excel-table th,
+  .excel-table td {
+    padding: 0.35rem 0.35rem !important;
+    font-size: 0.78rem !important;
+  }
+
+  .excel-table th.col-num,
+  .excel-table td.cell-num {
+    position: sticky !important;
+    left: 0 !important;
+    z-index: 8 !important;
+    background-color: var(--bg-card) !important;
+    box-shadow: 2px 0 5px rgba(0, 0, 0, 0.2) !important;
+  }
+
+  .excel-table th.col-actions,
+  .excel-table td.cell-actions {
+    position: sticky !important;
+    right: 0 !important;
+    z-index: 8 !important;
+    background-color: var(--bg-card) !important;
+    box-shadow: -2px 0 5px rgba(0, 0, 0, 0.2) !important;
+  }
+
+  /* 4. Modals on Mobile */
+  .modal-backdrop {
+    padding: 0.5rem !important;
+    align-items: flex-end !important;
+  }
+
+  .modal-window {
+    max-width: 100% !important;
+    width: 100% !important;
+    max-height: 94vh !important;
+    display: flex !important;
+    flex-direction: column !important;
+    border-radius: var(--radius-md) var(--radius-md) 0 0 !important;
+  }
+
+  .modal-body {
+    overflow-y: auto !important;
+    max-height: calc(94vh - 120px) !important;
+    padding: 1rem 0.75rem !important;
+  }
+
+  .modal-footer {
+    flex-wrap: wrap !important;
+    gap: 0.5rem !important;
+  }
+
+  .modal-footer .btn {
+    flex: 1 1 calc(50% - 0.25rem) !important;
+  }
+
+  /* 5. Filter Bars on Supplies & Dashboard */
+  .filter-bar {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 0.6rem !important;
+  }
+
+  .filter-bar-left,
+  .filter-bar-right {
+    width: 100% !important;
+    flex-wrap: wrap !important;
+  }
+
+  .history-search-box {
+    width: 100% !important;
+  }
+
+  /* 6. Toast Notifications on Mobile */
+  .toast-container {
+    right: 0.75rem !important;
+    left: 0.75rem !important;
+    bottom: 0.75rem !important;
+    max-width: none !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .doc-header-card .header-field-stacked {
+    flex: 1 1 100% !important;
+  }
+
+  .brand-badge {
+    font-size: 0.78rem !important;
+    padding: 0.25rem 0.5rem !important;
+  }
 }

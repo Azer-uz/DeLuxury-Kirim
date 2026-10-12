@@ -17,7 +17,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
   <!-- Main CSS -->
-  <link rel="stylesheet" href="css/style.css?v=2.6">
+  <link rel="stylesheet" href="css/style.css?v=3.0">
 </head>
 <body>
 
@@ -561,6 +561,14 @@
                   <option value="USD">USD ($)</option>
                 </select>
               </div>
+
+              <!-- Tezkor Narx Multiplikatori (x1000) -->
+              <div class="header-field-stacked">
+                <label class="header-field-label" style="color: #38bdf8;">Tezkor narx</label>
+                <button type="button" class="btn btn-secondary" id="btn-multiply-prices-1000" style="height: 32px; padding: 0.2rem 0.65rem; font-size: 0.78rem; font-weight: 700; color: #38bdf8; border-color: rgba(56, 189, 248, 0.4); display: inline-flex; align-items: center; gap: 0.3rem;" title="Jadvaldagi barcha narxlarga 3 ta nol qo'shish (x1000: 144 ➔ 144,000)">
+                  <span>⚡</span> x1000 (000)
+                </button>
+              </div>
             </div>
 
             <!-- Right: Actions (Saqlash, To'liq ekran, AI Rasm, Tozalash, Status) -->
@@ -910,9 +918,15 @@
             Накладная, счёт-фактура yoki tovarlar ro'yxati fotosi (JPG, PNG, WEBP)
           </p>
           <input type="file" id="ai-file-input" accept="image/*" style="display: none;">
-          <button class="btn btn-secondary" onclick="document.getElementById('ai-file-input').click();">
-            📁 Rasmni tanlash
-          </button>
+          <input type="file" id="ai-camera-input" accept="image/*" capture="environment" style="display: none;">
+          <div style="display: flex; gap: 0.6rem; justify-content: center; flex-wrap: wrap;">
+            <button type="button" class="btn btn-gold" onclick="document.getElementById('ai-camera-input').click();">
+              📸 Kameradan suratga olish
+            </button>
+            <button type="button" class="btn btn-secondary" onclick="document.getElementById('ai-file-input').click();">
+              📁 Galereya / Fayl tanlash
+            </button>
+          </div>
         </div>
 
         <div class="ai-preview-zone" id="ai-preview-zone" style="display: none;">
@@ -921,7 +935,10 @@
             <div>
               <div id="ai-filename" style="font-weight: 600;"></div>
               <div id="ai-filesize" style="font-size: 0.8rem; color: var(--text-muted);"></div>
-              <button class="btn btn-secondary btn-sm" id="btn-ai-reselect" style="margin-top: 0.5rem;">Boshqa rasm tanlash</button>
+              <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem; flex-wrap: wrap;">
+                <button class="btn btn-secondary btn-sm" id="btn-ai-rotate" title="Rasmni 90 gradus burish (agar rasm yonbosh tushgan bo'lsa)">🔄 90° Burish</button>
+                <button class="btn btn-secondary btn-sm" id="btn-ai-reselect">Boshqa rasm tanlash</button>
+              </div>
             </div>
           </div>
         </div>
@@ -930,7 +947,7 @@
           <div class="ai-spinner"></div>
           <h4>Sun'iy intellekt tovar qatorlarini o'qimoqda...</h4>
           <p style="font-size: 0.85rem; color: var(--text-muted);">
-            Tovarlar katalogi va ierarxiyasi bilan taqqoslanmoqda...
+            Qo'lda yozilgan jadval, artikul, razmer va narxlar tahlil qilinmoqda...
           </p>
         </div>
 
@@ -942,6 +959,7 @@
                 <tr>
                   <th>№</th>
                   <th>Вид товара</th>
+                  <th>Артикул</th>
                   <th>Бренд</th>
                   <th>Размер</th>
                   <th>Soni</th>
@@ -952,6 +970,14 @@
               </thead>
               <tbody id="ai-results-tbody"></tbody>
             </table>
+          </div>
+
+          <!-- x1000 Multiplier Option inside AI Modal -->
+          <div id="ai-multiply-1000-container" style="margin-top: 0.75rem; padding: 0.6rem 0.85rem; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.6rem;">
+            <input type="checkbox" id="ai-chk-multiply-1000" style="width: 16px; height: 16px; cursor: pointer; accent-color: #38bdf8;">
+            <label for="ai-chk-multiply-1000" style="font-size: 0.82rem; font-weight: 600; color: #38bdf8; cursor: pointer; margin: 0; user-select: none;">
+              ⚡ Narxlarga 3 ta nol qo'shish (masalan: 144 ➔ 144,000 so'm)
+            </label>
           </div>
         </div>
       </div>
@@ -1011,10 +1037,10 @@
   <script src="js/dashboard.js"></script>
   <script src="js/supplies.js?v=2.7"></script>
   <script src="js/references.js?v=2.7"></script>
-  <script src="js/grid.js?v=2.7"></script>
-  <script src="js/ai-scanner.js"></script>
+  <script src="js/grid.js?v=2.8"></script>
+  <script src="js/ai-scanner.js?v=3.2"></script>
   <script src="js/history.js"></script>
-  <script src="js/app.js?v=2.7"></script>
+  <script src="js/app.js?v=2.8"></script>
 
 </body>
 </html>

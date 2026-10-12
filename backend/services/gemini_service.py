@@ -1,70 +1,131 @@
 import json
 import base64
 import logging
+import io
 import httpx
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Union
+from PIL import Image, ImageOps
 from backend.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"
+GEMINI_MODELS = [
+    "gemini-3.5-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3-flash-preview",
+    "gemini-3.6-flash",
+    "gemini-flash-latest",
+    "gemini-3.8-flash"
+]
 
 class GeminiService:
     def __init__(self):
         self.settings = get_settings()
         self.api_key = self.settings.gemini_api_key
 
+    def normalize_image(self, image_bytes: bytes) -> bytes:
+        """
+        Auto-correct image orientation via EXIF or rotate if table is oriented vertically.
+        """
+        try:
+            im = Image.open(io.BytesIO(image_bytes))
+            im = ImageOps.exif_transpose(im)
+            
+            # If photographed vertically (height > width), a landscape A4 invoice sheet is sideways.
+            # Rotate 90 degrees clockwise (270 deg) to make it horizontal and legible.
+            if im.height > im.width:
+                im = im.rotate(270, expand=True)
+            
+            if im.mode in ("RGBA", "P"):
+                im = im.convert("RGB")
+            
+            buf = io.BytesIO()
+            im.save(buf, format="JPEG", quality=90)
+            return buf.getvalue()
+        except Exception as e:
+            logger.warning(f"Image normalization skipped: {e}")
+            return image_bytes
+
     async def parse_invoice_image(
         self,
         image_bytes: bytes,
         mime_type: str = "image/jpeg",
         reference_context: Dict[str, Any] = None
-    ) -> List[Dict[str, Any]]:
+    ) -> Dict[str, Any]:
         """
-        Parse waybill / invoice image and extract structured line items matching reference catalog.
+        Parse waybill / invoice image (printed or handwritten) and extract structured header and line items.
         """
         if not self.api_key:
             logger.warning("Gemini API key is not configured.")
-            return []
+            return {"kontragent": "", "phone": "", "date": "", "rows": []}
 
-        b64_image = base64.b64encode(image_bytes).decode("utf-8")
+        # Normalize orientation
+        norm_bytes = self.normalize_image(image_bytes)
+        b64_image = base64.b64encode(norm_bytes).decode("utf-8")
 
-        # Provide brief reference context to guide normalization
-        known_vid = (reference_context or {}).get("known_product_types", [])[:80]
-        known_brands = (reference_context or {}).get("known_brands", [])[:40]
-        known_seasons = (reference_context or {}).get("known_seasons", [])
+        prompt = """
+Siz kiyim-kechak do'koni uchun kirim hisob-faktura (накладная / счёт-фактура / invoice) varaqasini o'qib beruvchi sun'iy intellektsiz.
+Ushbu varaq qo'lda yozilgan (рукописная) yoki bosilgan bo'lishi mumkin.
 
-        prompt = f"""
-Siz kiyim-kechak do'koni uchun tovar kirim (накладная / счёт-фактура / invoice) rasmini o'qib, jadval qatorlarini chiqarib beruvchi sun'iy intellektsiz.
+DIQQAT:
+1. Rasm har qanday burchakda (gorizontal yoki vertikal, 90 gradus burilgan) bo'lishi mumkin. Varaq matnlarini to'g'ri o'qing!
+2. VARAQ SHAPKASI (YUQORI QISMI):
+   - "Контрагент:" chizig'ida yozilgan ism/firma, yoki agar chiziq bo'sh bo'lsa, varaqning eng yuqori hoshiyasida ruchka bilan yozilgan ism (masalan: "Хиро", "Хирож" va h.k.).
+   - "Тел. Номер:" telefon raqami (agar bo'lsa).
+   - "Дата:" sana (agar bo'lsa).
 
-Rasmdagi har bir tovar qatorini aniqlab, quyidagi JSON formatida qaytaring:
-[
-  {{
-    "country": "Страна (masalan: Турция, Италия, Китай, Узбекистан)",
-    "product_type": "Вид товара (ruscha, masalan: Футболка, Джинсы, Куртка, Рубашка, Свитер, Платье, Ремень)",
-    "brand": "Бренд (masalan: Zara, De Luxury, Massimo Dutti, Lacoste va h.k.)",
-    "collection": "Коллекция (masalan: AW26, SS26, CONT)",
-    "season": "Сезон (masalan: Весна-Осень, Зима, Лето)",
-    "size": "Размер (masalan: S, M, L, XL, 42, 44, 46)",
-    "description": "Описание / Fason tavsifi (rang bu yerga YOZILMASIN, agar alohida izoh bo'lmasa bo'sh qoldiring: \"\")",
-    "color": "Цвет / Rang (ruscha, masalan: Молочный, Черный, Белый, Бежевый, Хаки, Синий)",
-    "model_code": "Код модели (agar rasmda bo'lsa)",
-    "quantity": 1.0 (soni),
-    "price_buy": 15.0 (sotib olish narxi / tan narx),
-    "price_sale": 35.0 (sotish narxi; agar rasmda yo'q bo'lsa, price_buy * 2.2 qilib hisoblang),
-    "confidence": 0.95 (0.0 dan 1.0 gacha ishonchlilik darajasi),
-    "low_confidence_fields": ["maydon1", "maydon2"] (agar biror maydon aniq ko'rinmasa yoki taxmin qilingan bo'lsa)
-  }}
-]
+3. JADVAL USTUNLARI (har bir tovar qatori uchun):
+   - №: qator raqami (1, 2, 3...)
+   - "Вид товар": tovar turi. DIQQAT: Har doim kiyimlar spravochnigi bo'yicha standart RUSCHA nomda yozing:
+     * Amerikanka -> "Американка"
+     * Dvoyka / Dvoyka S.K. -> "Двойка"
+     * Dvoyka sport -> "Спортивка двойка"
+     * Svitr -> "Свитер"
+     * Futbolka -> "Футболка"
+     * Vitrovka / Vitrovka koja -> "Ветровка"
+     * Bezrukavka -> "Жилет безрукавка"
+     * Kurtka -> "Куртка"
+     * Kojinka -> "Куртка кожаная"
+     * Pidjak -> "Пиджак"
+     * Kardigan -> "Кардиган"
+     * Rubashka -> "Рубашка"
+     (Lotincha yozilmasin, toza ruscha spravochnik nomi bo'lsin!)
+   - "Артикул": nakladnoydagi zavod artikul kodi (masalan: 88-020, 598581L, 59205, 2708, 6127, 62960-6, 99902, 99901, 99908...). Bu qiymat "articul" maydoniga o'zgarishsiz yoziladi.
+   - "Бренд": brend nomi (masalan: Gratude, Brunello C, Loro P, Ganiani, Adidas, Artepro, Mandelli, Minlior, Grand Defile, Liwali, Razza, Renzo Rinal...)
+   - "Образ Жизni": obraz jizni / lifestyle (masalan: Sport, Casual, Klassika, agar bo'sh bo'lsa "")
+   - "Сезон": mavsum (agar yozilgan bo'lsa o'sha, bo'sh bo'lsa "Весна-Осень")
+   - "Размерный ряд": razmer (masalan: 48-56, L-4XL, M-3XL, 48-58, S-XL)
+   - "Кол-во": tovar soni. DIQQAT: Agar jadvalda "5x2" bo'lsa 5 * 2 = 10 dona, agar "5x3" bo'lsa 15 dona, "5x11" bo'lsa 55 dona, "6x2" bo'lsa 12 dona, "5x6" bo'lsa 30 dona, "5x10" bo'lsa 50 dona, "5" bo'lsa 5 dona deb umumiy dona sonini "quantity" ga raqam sifatida yozing. Asl yozuvni esa "raw_quantity" ga yozing (masalan "5x2").
+   - "Закуп Цена": tan narx / sotib olish narxi (masalan: 180, 400, 200, 130, 420...)
+   - "Продажная Цена": sotish narxi (masalan: 225, 555, 245, 195, 495...)
+
+Javobni quyidagi aniq JSON formatida qaytaring:
+{
+  "kontragent": "...",
+  "phone": "...",
+  "date": "...",
+  "rows": [
+    {
+      "row_no": 1,
+      "product_type": "Американка",
+      "articul": "88-020",
+      "brand": "Gratude",
+      "lifestyle": "",
+      "season": "Весна-Осень",
+      "size": "48-56",
+      "quantity": 5,
+      "raw_quantity": "5",
+      "price_buy": 180.0,
+      "price_sale": 225.0,
+      "confidence": 0.95
+    }
+  ]
+}
 
 QOIDALAR:
-1. Qatorlarni bo'sh qoldirmang, eng yaqin mos keladigan qiymatlarni tanlang.
-2. "description" maydoniga RANG YOZILMASIN! Rang faqat "color" maydoniga yoziladi. Agar alohida fason tavsifi bo'lmasa, "description" ni bo'sh qoldiring ("").
-3. Agar biror qiymatga ishonchingiz komil bo'lmasa, confidence qiymatini 0.7 dan past qiling va low_confidence_fields ro'yxatiga o'sha maydon nomini kiriting.
-4. Faqat toza JSON array qaytaring (hech qanday qo'shimcha matnsiz).
-
-Ma'lumotlar bazasidagi namunaviy turlar:
-{", ".join(known_vid[:40]) if known_vid else "Футболка, Джинсы, Куртка, Блузка, Свитер, Платье, Рубашка"}
+1. Jadvaldagi barcha qatorlarni to'liq o'qing.
+2. "Вид товар" maydoniga lotincha emas, faqat ruscha spravochnik nomini yozing.
+3. Faqat toza JSON formatida javob bering, hech qanday ortiqcha matn qo'shmang.
 """
 
         payload = {
@@ -74,7 +135,7 @@ Ma'lumotlar bazasidagi namunaviy turlar:
                         {"text": prompt},
                         {
                             "inline_data": {
-                                "mime_type": mime_type,
+                                "mime_type": "image/jpeg",
                                 "data": b64_image
                             }
                         }
@@ -82,36 +143,39 @@ Ma'lumotlar bazasidagi namunaviy turlar:
                 }
             ],
             "generationConfig": {
-                "temperature": 0.1,
-                "response_mime_type": "application/json"
+                "temperature": 0.1
             }
         }
 
-        async with httpx.AsyncClient(timeout=45.0) as client:
-            try:
-                resp = await client.post(
-                    f"{GEMINI_API_URL}?key={self.api_key}",
-                    json=payload,
-                    headers={"Content-Type": "application/json"}
-                )
+        # Multi-model fallback if any model experiences 503 high demand spike
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            for model_name in GEMINI_MODELS:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={self.api_key}"
+                try:
+                    resp = await client.post(url, json=payload, headers={"Content-Type": "application/json"})
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        candidates = data.get("candidates", [])
+                        if candidates:
+                            content_text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "").strip()
+                            if content_text.startswith("```"):
+                                lines = content_text.splitlines()
+                                if lines and lines[0].startswith("```"):
+                                    lines = lines[1:]
+                                if lines and lines[-1].strip().startswith("```"):
+                                    lines = lines[:-1]
+                                content_text = "\n".join(lines).strip()
 
-                if resp.status_code == 200:
-                    data = resp.json()
-                    candidates = data.get("candidates", [])
-                    if candidates:
-                        content_text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-                        # Parse JSON array
-                        content_text = content_text.strip()
-                        if content_text.startswith("```json"):
-                            content_text = content_text[7:]
-                        if content_text.endswith("```"):
-                            content_text = content_text[:-3]
-                        parsed_items = json.loads(content_text.strip())
-                        if isinstance(parsed_items, list):
-                            return parsed_items
-                else:
-                    logger.error(f"Gemini API error ({resp.status_code}): {resp.text}")
-            except Exception as e:
-                logger.exception("Failed to parse invoice with Gemini API")
+                            parsed = json.loads(content_text)
+                            if isinstance(parsed, dict):
+                                return parsed
+                            elif isinstance(parsed, list):
+                                return {"kontragent": "", "phone": "", "date": "", "rows": parsed}
+                    else:
+                        logger.warning(f"Model {model_name} returned status {resp.status_code}, trying next model...")
+                        continue
+                except Exception as e:
+                    logger.warning(f"Error calling {model_name}: {e}")
+                    continue
 
-        return []
+        return {"kontragent": "", "phone": "", "date": "", "rows": []}

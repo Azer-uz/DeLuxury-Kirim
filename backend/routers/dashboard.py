@@ -11,10 +11,34 @@ from backend.services.moysklad_service import MoySkladService
 from backend.models import PrixodDocument, ProductType, DraftState
 import json
 
+from pathlib import Path
+from backend.config import BASE_DIR
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/dashboard", tags=["Dashboard & Analytics"])
 ms_service = MoySkladService()
+
+CACHE_DIR = BASE_DIR / "cache"
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
+CACHE_DASHBOARD_FILE = CACHE_DIR / "dashboard_cache.json"
+CACHE_SUPPLIES_FILE = CACHE_DIR / "supplies_cache.json"
+
+def _load_disk_cache(path: Path) -> Optional[Any]:
+    if path.exists():
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.warning(f"Error reading disk cache {path}: {e}")
+    return None
+
+def _save_disk_cache(path: Path, data: Any):
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+    except Exception as e:
+        logger.warning(f"Error saving disk cache {path}: {e}")
 
 # In-memory cache to respect MoySklad rate limits
 _dashboard_cache = {
@@ -75,6 +99,18 @@ async def get_dashboard_stats(force_refresh: bool = False, db: Session = Depends
                 folder_map = {f["id"]: f["name"] for f in resps[3].json().get("rows", [])}
         except Exception as e:
             logger.error(f"Error fetching live MoySklad dashboard data: {e}")
+
+        # If MoySklad is down or returned errors, fallback immediately to persistent disk cache
+        if not supplies_raw and not stock_rows and not counterparties_raw:
+            disk_data = _load_disk_cache(CACHE_DASHBOARD_FILE)
+            if disk_data:
+                disk_data["offline"] = True
+                disk_data["offline_message"] = "MoySklad tizimida texnik ishlar olib borilmoqda. Oxirgi saqlangan keshdan yuklandi."
+                return disk_data
+            if _dashboard_cache.get("data"):
+                cached = dict(_dashboard_cache["data"])
+                cached["offline"] = True
+                return cached
 
         # Fetch supply positions in parallel to extract real category breakdown per supply
         supply_categories: Dict[str, Dict[str, float]] = {}
@@ -287,6 +323,8 @@ async def get_dashboard_stats(force_refresh: bool = False, db: Session = Depends
 
     _dashboard_cache["data"] = result
     _dashboard_cache["timestamp"] = now
+    if supplies_raw or stock_rows:
+        _save_disk_cache(CACHE_DASHBOARD_FILE, result)
     return result
 
 _cp_name_cache: Dict[str, str] = {}
@@ -355,6 +393,16 @@ async def get_all_supplies(
                     break
                 cur_offset += len(rows)
 
+            is_offline = False
+            if not all_rows:
+                cached_supplies = _load_disk_cache(CACHE_SUPPLIES_FILE)
+                if cached_supplies:
+                    all_rows = cached_supplies
+                    total = len(all_rows)
+                    is_offline = True
+            elif all_rows:
+                _save_disk_cache(CACHE_SUPPLIES_FILE, all_rows)
+
             formatted = []
             for s in all_rows:
                 sum_val = float(s.get("sum", 0)) / 100.0
@@ -415,7 +463,8 @@ async def get_all_supplies(
 
             return {
                 "total": total,
-                "rows": formatted
+                "rows": formatted,
+                "offline": is_offline
             }
         except Exception as e:
             logger.error(f"Error fetching all supplies: {e}")

@@ -64,6 +64,8 @@ const Grid = {
       sum_buy: defaultValues.sum_buy !== undefined ? parseFloat(defaultValues.sum_buy) : 0,
       sum_sale: defaultValues.sum_sale !== undefined ? parseFloat(defaultValues.sum_sale) : 0,
       ai_generated: defaultValues.ai_generated || false,
+      ai_ambiguous: defaultValues.ai_ambiguous || false,
+      ai_alternative: defaultValues.ai_alternative || "",
       ai_confidence: defaultValues.ai_confidence !== undefined ? parseFloat(defaultValues.ai_confidence) : 1.0,
       ai_low_confidence_fields: defaultValues.ai_low_confidence_fields || []
     };
@@ -106,6 +108,51 @@ const Grid = {
       this.rows = [];
       this.addEmptyRows(1);
       this.triggerAutoSave();
+    }
+  },
+
+  applyAlternativeType(rowIndex, newType) {
+    if (!this.rows || !this.rows[rowIndex]) return;
+    this.rows[rowIndex].product_type = newType;
+    this.rows[rowIndex].ai_ambiguous = false;
+    this.rows[rowIndex].ai_alternative = "";
+    this.rows[rowIndex].last_edited_field = 'product_type';
+    this.recalculateAll();
+    this.render();
+    this.triggerAutoSave();
+    if (typeof showToast === 'function') {
+      showToast(`Вид товара "${newType}" ga almashtirildi`, "success");
+    }
+  },
+
+  multiplyPricesBy1000() {
+    if (!this.rows || this.rows.length === 0) return;
+    let count = 0;
+    this.rows.forEach(r => {
+      let changed = false;
+      if (r.price_buy !== undefined && r.price_buy !== null && parseFloat(r.price_buy) > 0) {
+        r.price_buy = Math.round(parseFloat(r.price_buy) * 1000);
+        changed = true;
+      }
+      if (r.price_sale !== undefined && r.price_sale !== null && parseFloat(r.price_sale) > 0) {
+        r.price_sale = Math.round(parseFloat(r.price_sale) * 1000);
+        changed = true;
+      }
+      if (changed) count++;
+    });
+
+    if (count === 0) {
+      if (typeof showToast === 'function') {
+        showToast("Jadvalda narx kiritilgan qatorlar topilmadi", "info");
+      }
+      return;
+    }
+
+    this.recalculateAll();
+    this.render();
+    this.triggerAutoSave();
+    if (typeof showToast === 'function') {
+      showToast(`⚡ ${count} ta qatordagi narxlarga 3 ta nol qo'shildi (x1000)!`, "success");
     }
   },
 
@@ -228,8 +275,16 @@ const Grid = {
 
           <!-- Mahsulot turi (Вид товара) -->
           <td>
-            <input type="text" class="cell-input ${isLowConf('product_type') ? 'cell-ai-highlight' : ''}" 
+            <input type="text" class="cell-input ${isLowConf('product_type') ? 'cell-ai-highlight' : ''} ${row.ai_ambiguous ? 'cell-ambiguous' : ''}" 
                    list="dl-product-types" data-field="product_type" data-row="${idx}" value="${this.escapeHtml(row.product_type || '')}" placeholder="Tanlang (masalan: Костюм)...">
+            ${row.ai_ambiguous && row.ai_alternative ? `
+              <div class="alt-suggest-wrap">
+                <span style="font-size: 0.72rem; color: #fbbf24;" title="Nomi noaniq yoki bir nechta variant mavjud">⚠️</span>
+                <span class="badge-alt-suggest" onclick="Grid.applyAlternativeType(${idx}, '${this.escapeHtml(row.ai_alternative)}')" title="Ushbu variantga almashtirish uchun bosing">
+                  🔄 ${this.escapeHtml(row.ai_alternative)}
+                </span>
+              </div>
+            ` : ''}
           </td>
 
           <!-- Kategoriya (Auto) -->
@@ -422,6 +477,15 @@ const Grid = {
         if (this.rows[rowIdx]) {
           this.rows[rowIdx][field] = val;
           this.rows[rowIdx].last_edited_field = field;
+
+          if (field === 'product_type') {
+            this.rows[rowIdx].ai_ambiguous = false;
+            this.rows[rowIdx].ai_alternative = "";
+            const tr = e.target.closest('tr');
+            const altWrap = tr?.querySelector('.alt-suggest-wrap');
+            if (altWrap) altWrap.remove();
+            e.target.classList.remove('cell-ambiguous');
+          }
 
           // Trigger immediate recalculation for this row
           const calc = References.calculateRow(this.rows[rowIdx], rowIdx, this.baseCounter);
@@ -1041,6 +1105,12 @@ const Grid = {
     document.getElementById('btn-back-to-supplies')?.addEventListener('click', (e) => {
       e.preventDefault();
       SuppliesList.closeGridReceiptView();
+    });
+
+    // 5. Multiply prices by 1000 button
+    document.getElementById('btn-multiply-prices-1000')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      this.multiplyPricesBy1000();
     });
 
     // 5. Global Escape to close fullscreen or popups
