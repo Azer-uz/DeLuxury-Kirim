@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from backend.config import get_settings
 from backend.database import engine, Base, SessionLocal
 from backend.seed import seed_database
+from backend.migrations import add_missing_columns, fill_missing_color_codes
 from backend.services.auth_service import SESSION_COOKIE, read_session_token
 from backend.routers import (
     references, articul, ai, documents, moysklad, gateway, dashboard, auth
@@ -26,6 +27,8 @@ async def lifespan(app: FastAPI):
     # 1. Initialize DB tables
     logger.info("Initializing database tables...")
     Base.metadata.create_all(bind=engine)
+    # Eski bazada yetishmayotgan ustunlar (create_all mavjud jadvallarni o'zgartirmaydi)
+    add_missing_columns(engine, Base.metadata)
 
     # 2. Seed default reference data from CSV files
     logger.info("Checking and seeding reference dictionaries from CSV files...")
@@ -37,6 +40,7 @@ async def lifespan(app: FastAPI):
         logger.exception("Error during database seeding:")
     finally:
         db.close()
+    fill_missing_color_codes(engine)
 
     yield
 
