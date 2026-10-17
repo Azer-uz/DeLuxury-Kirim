@@ -1,14 +1,16 @@
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI
+import hmac
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
 from backend.config import get_settings
 from backend.database import engine, Base, SessionLocal
 from backend.seed import seed_database
+from backend.services.auth_service import SESSION_COOKIE, read_session_token
 from backend.routers import (
-    references, articul, ai, documents, moysklad, gateway, dashboard
+    references, articul, ai, documents, moysklad, gateway, dashboard, auth
 )
 
 logging.basicConfig(
@@ -41,22 +43,47 @@ async def lifespan(app: FastAPI):
     logger.info("Application shutdown.")
 
 app = FastAPI(
-    title="De Luxury — Kirim (Приход) & MoySklad Sync Gateway",
+    title="Kirim (Приход) & MoySklad Sync Gateway",
     description="MoySklad integratsiyalashgan, AI quvvatli kiyim-kechak qabul qilish tizimi va markaziy API Gateway",
-    version="1.1.0",
+    version="2.0.0",
     lifespan=lifespan
 )
 
-# CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"]
-)
+PUBLIC_API = {"/api/auth/login", "/api/auth/logout"}
+
+def _is_local_direct(request: Request) -> bool:
+    """To'g'ridan-to'g'ri localhost ulanishi (nginx orqali kelgan tashqi so'rov emas)"""
+    host = request.client.host if request.client else ""
+    proxied = "x-forwarded-for" in request.headers or "x-real-ip" in request.headers
+    return host in ("127.0.0.1", "::1", "localhost") and not proxied
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    """Barcha /api so'rovlari — faqat kirgan foydalanuvchiga. Gateway — localhost'dagi xizmatlar (bot) yoki GATEWAY_TOKEN bilan"""
+    path = request.url.path
+    request.state.user = None
+    if not path.startswith("/api/") or path in PUBLIC_API:
+        return await call_next(request)
+
+    if path.startswith("/api/gateway/"):
+        token = settings.gateway_token
+        header_token = request.headers.get("x-gateway-token", "")
+        if _is_local_direct(request) or (token and hmac.compare_digest(header_token, token)):
+            return await call_next(request)
+        return JSONResponse({"detail": "Gateway faqat ichki xizmatlar uchun"}, status_code=403)
+
+    db = SessionLocal()
+    try:
+        user = read_session_token(db, request.cookies.get(SESSION_COOKIE))
+    finally:
+        db.close()
+    if not user:
+        return JSONResponse({"detail": "Tizimga kiring", "auth_required": True}, status_code=401)
+    request.state.user = user
+    return await call_next(request)
 
 # Include Routers
+app.include_router(auth.router)
 app.include_router(gateway.router)
 app.include_router(references.router)
 app.include_router(articul.router)

@@ -175,6 +175,24 @@ class PrixodItem(Base):
 
     document = relationship("PrixodDocument", back_populates="items")
 
+class AppSetting(Base):
+    """Ilova sozlamalari (har bir mijoz o'rnatmasi uchun: rang/razmer rejimi, USD va h.k.)"""
+    __tablename__ = "app_settings"
+
+    key = Column(String(100), primary_key=True)
+    value = Column(Text, nullable=True)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+class ModelAllocation(Base):
+    """Qoralamadagi har bir model uchun berilgan doimiy model raqami.
+    Xato bo'lib qayta yuborilganda aynan shu raqam ishlatiladi — artikullar o'zgarmaydi."""
+    __tablename__ = "model_allocations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    alloc_key = Column(String(200), unique=True, nullable=False, index=True)  # "<qoralama>:<model_key>"
+    number = Column(Integer, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
 class DraftState(Base):
     __tablename__ = "draft_state"
 

@@ -1,3 +1,4 @@
+import html
 import httpx
 import logging
 from typing import List, Optional
@@ -55,6 +56,11 @@ class TelegramService:
                     success = False
         return success
 
+    @staticmethod
+    def _money(value: float, currency: str) -> str:
+        formatted = f"{value:,.2f}".replace(",", " ")
+        return f"${formatted}" if currency == "USD" else f"{formatted} so'm"
+
     async def notify_prixod_created(
         self,
         doc_number: str,
@@ -64,30 +70,37 @@ class TelegramService:
         total_qty: float,
         total_sum_buy: float,
         total_sum_sale: float,
-        moysklad_url: Optional[str] = None
+        currency: str = "UZS",
+        moysklad_url: Optional[str] = None,
+        user: Optional[str] = None,
     ):
-        """Send notification about successfully created Приемка in MoySklad."""
+        """MoySklad'da Приемка yaratilgani haqida xabar (sotuv summasi doim so'mda)"""
+        unknown = "Noma'lum"
         msg = (
-            f"<b>✅ YANGI KIRIM (ПРИЕМКА) YARATILDI!</b>\n\n"
-            f"📄 <b>Hujjat:</b> {doc_number}\n"
-            f"🏢 <b>Ombor:</b> {store or 'Asosiy ombor'}\n"
-            f"🤝 <b>Yetkazib beruvchi:</b> {counterparty or 'Noma\'lum'}\n"
+            f"<b>✅ {html.escape(self.settings.company_name)} — YANGI KIRIM (ПРИЕМКА)</b>\n\n"
+            f"📄 <b>Hujjat:</b> {html.escape(doc_number or '')}\n"
+            f"🏢 <b>Ombor:</b> {html.escape(store or unknown)}\n"
+            f"🤝 <b>Yetkazib beruvchi:</b> {html.escape(counterparty or unknown)}\n"
             f"📦 <b>Pozitsiyalar soni:</b> {total_items} ta\n"
             f"🔢 <b>Umumiy dona:</b> {total_qty:,.0f} dona\n"
-            f"💵 <b>Kirim summasi (tan narx):</b> ${total_sum_buy:,.2f}\n"
-            f"🏷️ <b>Sotish summasi:</b> ${total_sum_sale:,.2f}\n"
+            f"💵 <b>Kirim summasi (tan narx):</b> {self._money(total_sum_buy, currency)}\n"
+            f"🏷️ <b>Sotish summasi:</b> {self._money(total_sum_sale, 'UZS')}\n"
         )
+        if user:
+            msg += f"👤 <b>Kiritdi:</b> {html.escape(user)}\n"
         if moysklad_url:
             msg += f"\n🔗 <a href='{moysklad_url}'>MoySklad'da ko'rish</a>"
 
         await self.send_message(msg)
 
-    async def notify_prixod_error(self, doc_number: str, error_text: str):
-        """Send error alert notification."""
+    async def notify_prixod_error(self, doc_number: str, error_text: str, user: Optional[str] = None):
+        """Kirim yuborishda xatolik haqida ogohlantirish"""
         msg = (
-            f"<b>❌ KIRIM HUJJATIDA XATOLIK!</b>\n\n"
-            f"📄 <b>Hujjat:</b> {doc_number or 'Nomsiz'}\n"
-            f"⚠️ <b>Sabab:</b>\n<code>{error_text}</code>\n\n"
-            f"Omborchi ilovada tuzatib qayta yuborishi kerak."
+            f"<b>❌ {html.escape(self.settings.company_name)} — KIRIM HUJJATIDA XATOLIK!</b>\n\n"
+            f"📄 <b>Hujjat:</b> {html.escape(doc_number or 'Nomsiz')}\n"
+            f"⚠️ <b>Sabab:</b>\n<code>{html.escape(error_text[:1500])}</code>\n\n"
         )
+        if user:
+            msg += f"👤 <b>Kiritdi:</b> {html.escape(user)}\n"
+        msg += "Omborchi ilovada tuzatib qayta yuborishi kerak."
         await self.send_message(msg)

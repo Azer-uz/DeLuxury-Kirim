@@ -3,11 +3,23 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 0. Setup Theme Toggle (Dark & Light Mode)
   setupThemeToggle();
 
+  // Kirish: MoySklad login/paroli bilan (sessiya bo'lmasa login oynasi chiqadi va shu yerda kutiladi)
+  await Auth.ensureLoggedIn();
+
+  // Spravochniklar va kirim sozlamalari — jadval va qoralamalar ularga tayanadi
+  try {
+    await References.init();
+  } catch (e) {
+    console.error("References init error:", e);
+  }
+
   // 1. Setup UI tabs and buttons immediately
   setupNavigationTabs();
   setupMainButtons();
   setupQuickAddModals();
   setupAdminDropdown();
+  setupAppSettingsForm();
+  applySettingsUI();
   AIScanner.init();
 
   // 2. Initialize Dashboard & Supplies
@@ -30,13 +42,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 3. Load MoySklad metadata concurrently
   loadMoySkladMetadata();
 
-  // 4. Initialize References and Grid
-  try {
-    await References.init();
-  } catch (e) {
-    console.error("References init error:", e);
-  }
-
+  // 4. Initialize Grid
   try {
     await Grid.init();
   } catch (e) {
@@ -251,10 +257,17 @@ function setupMainButtons() {
     dateInput.value = now.toISOString().slice(0, 16);
   }
 
-  // Currency change listener
-  document.getElementById('header-currency')?.addEventListener('change', () => {
-    Grid.updateStats();
+  // Valyuta va USD kursi (USD faqat sozlamada yoqilgan bo'lsa ko'rinadi)
+  document.getElementById('header-currency')?.addEventListener('change', async () => {
+    await syncCurrencyUI();
+    Grid.recalculateAll();
     Grid.render();
+    Grid.triggerAutoSave();
+  });
+  document.getElementById('header-rate')?.addEventListener('input', () => {
+    Grid.recalculateAll();
+    Grid.render();
+    Grid.triggerAutoSave();
   });
 
   // Quick sync button from navbar
@@ -347,11 +360,14 @@ function setupMainButtons() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ last_number: val })
       });
+      const data = await resp.json();
       if (resp.ok) {
-        Grid.baseCounter = val;
+        Grid.baseCounter = data.last_number;
         Grid.recalculateAll();
         Grid.render();
-        showToast(`🔢 Артикул ketma-ket raqami ${val} ga yangilandi!`, 'success');
+        showToast(`🔢 Model raqami ${data.last_number} ga o'rnatildi (keyingisi ${String(data.last_number + 1).padStart(5, '0')})`, 'success');
+      } else {
+        showToast(data.detail || "Xatolik yuz berdi", "error");
       }
     } catch (e) {
       showToast("Xatolik yuz berdi", "error");
@@ -374,7 +390,7 @@ function setupMainButtons() {
     const resp = await fetch('/api/documents/validate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rows: usefulRows })
+      body: JSON.stringify({ rows: usefulRows, header: collectHeaderData() })
     });
     const res = await resp.json();
 
@@ -396,7 +412,7 @@ function setupMainButtons() {
     const resp = await fetch('/api/documents/validate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rows: usefulRows })
+      body: JSON.stringify({ rows: usefulRows, header: collectHeaderData() })
     });
     const val = await resp.json();
 
@@ -469,16 +485,9 @@ function setupMainButtons() {
     btn.textContent = "⏳ MoySklad'ga yuborilmoqda...";
 
     const usefulRows = Grid.rows.filter(r => r.product_type || r.price_buy > 0);
-    const headerData = {
-      doc_number: document.getElementById('header-doc-number')?.value,
-      doc_date: document.getElementById('header-date')?.value,
-      store_id: document.getElementById('header-store')?.value,
-      store_name: document.getElementById('header-store')?.selectedOptions[0]?.text || '',
-      counterparty_id: document.getElementById('header-counterparty')?.value,
-      counterparty_name: document.getElementById('header-counterparty')?.selectedOptions[0]?.text || '',
-      currency: document.getElementById('header-currency')?.value || 'UZS',
-      draft_id: Grid.activeDraftId
-    };
+    // Model raqamlari qoralamaga bog'lanadi — yuborishdan oldin qoralama saqlangan bo'lsin
+    if (!Grid.activeDraftId || Grid.isDirty) await Grid.saveDraft();
+    const headerData = collectHeaderData();
 
     try {
       const resp = await fetch('/api/documents/submit-moysklad', {
@@ -538,7 +547,13 @@ function setupMainButtons() {
           }
         }
       } else {
-        alert(data.detail || data.message || "MoySklad'ga yuborishda xatolik yuz berdi");
+        // Qoralama o'chirilmaydi: tuzatib qayta yuborilganda aynan shu artikullar ishlatiladi
+        const detail = data.detail;
+        if (detail && typeof detail === 'object' && Array.isArray(detail.errors)) {
+          alert(`⚠️ ${detail.message || 'Xatolik'}\n\n` + detail.errors.map(e => e.message).join('\n'));
+        } else {
+          alert(detail || data.message || "MoySklad'ga yuborishda xatolik yuz berdi");
+        }
       }
     } catch (e) {
       console.error("Submission error:", e);
@@ -788,11 +803,129 @@ function setupAdminDropdown() {
   });
 
   // 4. Chiqish
-  document.getElementById('admin-menu-logout')?.addEventListener('click', (e) => {
+  document.getElementById('admin-menu-logout')?.addEventListener('click', async (e) => {
     e.preventDefault();
     dropdown.style.display = 'none';
     if (confirm("Haqiqatan ham tizimdan chiqmoqchimisiz?")) {
-      showToast("👋 Tizimdan chiqildi", "info");
+      if (Grid.isDirty) await Grid.saveDraft();
+      await Auth.logout();
     }
+  });
+}
+
+// Hujjat sarlavhasi (validatsiya va yuborish uchun)
+function collectHeaderData() {
+  const currency = Grid.getCurrency();
+  return {
+    doc_number: document.getElementById('header-doc-number')?.value,
+    doc_date: document.getElementById('header-date')?.value,
+    store_id: document.getElementById('header-store')?.value,
+    store_name: document.getElementById('header-store')?.selectedOptions[0]?.text || '',
+    counterparty_id: document.getElementById('header-counterparty')?.value,
+    counterparty_name: document.getElementById('header-counterparty')?.selectedOptions[0]?.text || '',
+    currency: currency,
+    rate: currency === 'USD' ? Grid.getRate() : null,
+    draft_id: Grid.activeDraftId
+  };
+}
+
+// Valyuta tanlovi faqat USD yoqilganda ko'rinadi; USD tanlansa kurs maydoni chiqadi (MoySklad kursi bilan to'ldiriladi)
+async function syncCurrencyUI() {
+  const wrap = document.getElementById('header-currency-wrap');
+  const rateWrap = document.getElementById('header-rate-wrap');
+  const curSelect = document.getElementById('header-currency');
+  const rateInput = document.getElementById('header-rate');
+  const usdOn = !!References.settings.usd_enabled;
+  if (wrap) wrap.style.display = usdOn ? '' : 'none';
+  if (!usdOn && curSelect) curSelect.value = 'UZS';
+  const isUsd = usdOn && curSelect?.value === 'USD';
+  if (rateWrap) rateWrap.style.display = isUsd ? '' : 'none';
+  if (isUsd && rateInput && !parseFloat(rateInput.value)) {
+    try {
+      const resp = await fetch('/api/moysklad/currency-rate?iso=USD');
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.rate) rateInput.value = data.rate;
+      }
+    } catch (e) {
+      console.warn("USD rate fetch failed:", e);
+    }
+  }
+}
+
+// Sozlamalar bo'limi: kirim rejimlari (faqat admin o'zgartiradi) va brend nomi
+function applySettingsUI() {
+  const s = References.settings;
+  const isAdmin = !!Auth.user?.is_admin;
+  const setVal = (id, val) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (el.type === 'checkbox') el.checked = !!val; else el.value = val ?? '';
+    el.disabled = !isAdmin;
+  };
+  setVal('set-color-enabled', s.color_enabled);
+  setVal('set-size-enabled', s.size_enabled);
+  setVal('set-size-separator', s.size_separator);
+  setVal('set-usd-enabled', s.usd_enabled);
+  setVal('set-company-name', s.company_name);
+  setVal('set-allowed-logins', s.allowed_logins);
+  const saveBtn = document.getElementById('btn-save-app-settings');
+  if (saveBtn) saveBtn.style.display = isAdmin ? '' : 'none';
+  const counterBtn = document.getElementById('btn-update-counter');
+  if (counterBtn) counterBtn.style.display = isAdmin ? '' : 'none';
+  const hint = document.getElementById('set-admin-hint');
+  if (hint) hint.style.display = isAdmin ? 'none' : '';
+
+  const example = document.getElementById('set-articul-example');
+  if (example) {
+    let art = 'A26TOP00724';
+    if (s.color_enabled) art += 'BLK';
+    if (s.size_enabled) art += `${s.size_separator || '-'}XL`;
+    example.textContent = art;
+  }
+
+  if (s.company_name) {
+    document.title = `${s.company_name} — Kirim & Ta'minot Hub`;
+    document.querySelectorAll('.brand-badge, #settings-ms-org').forEach(el => { el.textContent = s.company_name; });
+  }
+  syncCurrencyUI();
+}
+
+function setupAppSettingsForm() {
+  ['set-color-enabled', 'set-size-enabled', 'set-size-separator'].forEach(id => {
+    document.getElementById(id)?.addEventListener('change', () => {
+      const example = document.getElementById('set-articul-example');
+      if (!example) return;
+      let art = 'A26TOP00724';
+      if (document.getElementById('set-color-enabled')?.checked) art += 'BLK';
+      if (document.getElementById('set-size-enabled')?.checked) art += `${document.getElementById('set-size-separator')?.value || '-'}XL`;
+      example.textContent = art;
+    });
+  });
+
+  document.getElementById('btn-save-app-settings')?.addEventListener('click', async () => {
+    const payload = {
+      color_enabled: document.getElementById('set-color-enabled')?.checked,
+      size_enabled: document.getElementById('set-size-enabled')?.checked,
+      size_separator: document.getElementById('set-size-separator')?.value || '-',
+      usd_enabled: document.getElementById('set-usd-enabled')?.checked,
+      company_name: document.getElementById('set-company-name')?.value || '',
+      allowed_logins: document.getElementById('set-allowed-logins')?.value || ''
+    };
+    const resp = await fetch('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      showToast(data.detail || "Sozlamalarni saqlab bo'lmadi", "error");
+      return;
+    }
+    References.settings = { ...References.settings, ...data };
+    applySettingsUI();
+    Grid.recalculateAll();
+    Grid.render();
+    showToast("✅ Kirim sozlamalari saqlandi", "success");
   });
 }

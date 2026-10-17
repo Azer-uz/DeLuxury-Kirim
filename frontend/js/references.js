@@ -26,25 +26,38 @@ const References = {
     status: ''
   },
 
+  // Ilova sozlamalari (/api/settings): artikulga rang/razmer qo'shilishi, USD kirim va h.k.
+  settings: {
+    company_name: '',
+    color_enabled: true,
+    size_enabled: false,
+    size_separator: '-',
+    usd_enabled: false
+  },
+
   async init() {
     try {
-      const resp = await fetch('/api/references/all');
-      if (resp.ok) {
-        this.data = await resp.json();
+      const [refResp, setResp] = await Promise.all([fetch('/api/references/all'), fetch('/api/settings')]);
+      if (refResp.ok) {
+        this.data = await refResp.json();
+      }
+      if (setResp.ok) {
+        this.settings = { ...this.settings, ...(await setResp.json()) };
       }
     } catch (e) {
       console.error("Error loading references:", e);
     }
   },
 
+  // Spravochnikda topilmasa bo'sh qaytadi — artikulda "???" ko'rinadi va yuborishda xato beriladi
   getProductTypeInfo(productTypeName) {
-    if (!productTypeName) return { category: '', group: '', group_code: 'UND' };
+    if (!productTypeName) return { category: '', group: '', group_code: '' };
     const pt = this.data.product_type_map[productTypeName.trim()];
     if (pt) {
       return {
         category: pt.category || '',
         group: pt.group || '',
-        group_code: pt.group_code || 'UND'
+        group_code: pt.group_code || ''
       };
     }
     // Case-insensitive fallback
@@ -56,14 +69,14 @@ const References = {
       return {
         category: found.category || '',
         group: found.group || '',
-        group_code: found.group_code || 'UND'
+        group_code: found.group_code || ''
       };
     }
-    return { category: '', group: '', group_code: 'UND' };
+    return { category: '', group: '', group_code: '' };
   },
 
   getSeasonCode(collectionName) {
-    if (!collectionName) return 'CON';
+    if (!collectionName) return '';
     const clean = collectionName.trim();
     if (this.data.season_map[clean]) {
       return this.data.season_map[clean];
@@ -71,12 +84,15 @@ const References = {
     const key = Object.keys(this.data.season_map).find(
       k => k.toLowerCase() === clean.toLowerCase()
     );
-    if (key) return this.data.season_map[key];
+    return key ? this.data.season_map[key] : '';
+  },
 
-    const upper = clean.toUpperCase();
-    if (upper.startsWith('AW')) return 'A' + upper.substring(2);
-    if (upper.startsWith('SS')) return 'S' + upper.substring(2);
-    return upper.substring(0, 3);
+  splitSizes(sizeText) {
+    return String(sizeText || '').split(/[,;/]+/).map(s => s.trim()).filter(Boolean);
+  },
+
+  normalizeSize(size) {
+    return String(size || '').replace(/\s+/g, '').toUpperCase();
   },
 
   getTopColors() {
@@ -98,7 +114,7 @@ const References = {
   },
 
   getColorCode(colorName) {
-    if (!colorName) return 'STD';
+    if (!colorName) return '';
     const clean = colorName.trim().toLowerCase();
     if (clean === 'мультиколор' || clean === 'multicolor' || clean === 'aralash' || clean === 'standart' || clean === 'std') {
       return 'STD';
@@ -107,8 +123,8 @@ const References = {
     if (found && found.short_code) {
       return found.short_code.trim().toUpperCase();
     }
-    // Fallback: Agar kod topilmasa, STD
-    return 'STD';
+    // Spravochnikda kodi yo'q rang — yuborishda xato beriladi
+    return '???';
   },
 
   getTopColors() {
@@ -119,43 +135,55 @@ const References = {
     return list.slice(0, 10);
   },
 
-  calculateRow(row, rowIndex, baseCounter = 500) {
+  /**
+   * Qator formulalari (oldindan ko'rish). Haqiqiy model raqamini yuborishda backend beradi.
+   *   Модель  = Mavsum kodi + Guruh kodi + (baseCounter + modelOrdinal + 1)
+   *   Артикул = Модель [+ Rang kodi] [+ ajratgich + Razmer] — sozlamaga qarab
+   * modelOrdinal — jadvaldagi model tartibi (bir modelning rang/razmer variantlari bir xil tartibni oladi).
+   * rate — USD kirimda kurs: tan narx dollarda, sotuv narxi doim so'mda.
+   */
+  calculateRow(row, modelOrdinal, baseCounter = 0, rate = 1) {
     const pType = (row.product_type || '').trim();
-    const coll = (row.collection || 'AW26').trim();
+    const coll = (row.collection || '').trim();
     const brand = (row.brand || '').trim();
     const factoryCode = (row.factory_code || '').trim();
     const desc = (row.description || '').trim();
     const color = (row.color || '').trim();
+    const size = (row.size || '').trim();
     const qty = parseFloat(row.quantity) || 0;
     const pBuy = parseFloat(row.price_buy) || 0;
     const pSale = parseFloat(row.price_sale) || 0;
+    const buyRate = rate > 0 ? rate : 1;
 
     const ptInfo = this.getProductTypeInfo(pType);
-    const seasonCode = this.getSeasonCode(coll);
-    const groupCode = ptInfo.group_code || 'UND';
+    const seasonCode = this.getSeasonCode(coll) || '???';
+    const groupCode = ptInfo.group_code || '???';
 
-    // Model calculation: SeasonCode + GroupCode + 5-digit sequence (e.g. A26OBV00669)
-    const sequenceNum = baseCounter + rowIndex + 1;
-    const zeroPadded = String(sequenceNum).padStart(5, '0');
+    const zeroPadded = (modelOrdinal === null || modelOrdinal === undefined)
+      ? '-----'
+      : String(baseCounter + modelOrdinal + 1).padStart(5, '0');
     const calculatedModel = `${seasonCode}${groupCode}${zeroPadded}`;
-    // Automatic model should ALWAYS be calculatedModel unless custom_model is explicitly set
     const modelCode = (row.custom_model && row.model_code && row.model_code.trim()) ? row.model_code.trim() : calculatedModel;
 
-    // Articul calculation: ModelCode + 3-letter ColorCode without hyphen (e.g. A26OBV00669BLK or A26OBV00669STD)
-    const colorCode = this.getColorCode(color);
-    const calculatedArticul = `${modelCode}${colorCode}`;
+    const colorCode = this.settings.color_enabled ? this.getColorCode(color) : '';
+    let calculatedArticul = modelCode + colorCode;
+    if (this.settings.size_enabled && size) {
+      const sizes = this.splitSizes(size);
+      calculatedArticul += `${this.settings.size_separator || '-'}${sizes.length > 1 ? '?' : this.normalizeSize(size)}`;
+    }
 
-    // Tovar nomiga Rang qo'shilmaydi. Brenddan keyin Код модели (Zavod artikuli) turadi:
+    // Tovar nomiga Rang/Razmer qo'shilmaydi. Brenddan keyin Код модели (Zavod artikuli) turadi:
     const nameParts = [pType, desc, brand, factoryCode].filter(Boolean);
     const fullName = nameParts.join(' ').trim();
 
     let finalSale = pSale;
     let markupPct = parseFloat(row.markup_pct) || 0;
+    const buyInSaleCurrency = pBuy * buyRate;
 
-    if (row.last_edited_field === 'markup_pct' && pBuy > 0) {
-      finalSale = Math.round(pBuy * (1 + markupPct / 100) * 100) / 100;
-    } else if (pBuy > 0 && pSale > 0) {
-      markupPct = Math.round(((pSale / pBuy) - 1) * 1000) / 10;
+    if (row.last_edited_field === 'markup_pct' && buyInSaleCurrency > 0) {
+      finalSale = Math.round(buyInSaleCurrency * (1 + markupPct / 100) * 100) / 100;
+    } else if (buyInSaleCurrency > 0 && pSale > 0) {
+      markupPct = Math.round(((pSale / buyInSaleCurrency) - 1) * 1000) / 10;
     }
 
     const sumBuy = Math.round((qty * pBuy) * 100) / 100;
@@ -166,7 +194,8 @@ const References = {
       group_name: ptInfo.group,
       group_code: groupCode,
       season_code: seasonCode,
-      code: zeroPadded,
+      // Tovar kodini MoySklad o'zi beradi
+      code: '',
       model_code: modelCode,
       calculated_model: calculatedModel,
       factory_code: factoryCode,

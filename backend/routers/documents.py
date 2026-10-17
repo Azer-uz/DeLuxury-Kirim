@@ -1,16 +1,17 @@
+import asyncio
 import json
 import datetime
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from typing import Dict, Any, List, Optional
 from backend.database import get_db
-from backend.models import (
-    PrixodDocument, PrixodItem, DraftState, ArticulCounter, ProductType, Season
-)
+from backend.models import PrixodDocument, PrixodItem, DraftState, ModelAllocation
+from backend.services.app_settings import get_app_settings
 from backend.services.articul_service import (
-    calculate_row_formulas, get_next_articul_number
+    RefLookup, allocate_model_numbers, build_articul, build_full_name, build_model_code,
+    calc_money, is_multi_size, normalize_size, sync_counter
 )
-from backend.services.moysklad_service import MoySkladService
+from backend.services.moysklad_service import MoySkladService, MoySkladError
 from backend.services.telegram_service import TelegramService
 
 router = APIRouter(prefix="/api/documents", tags=["Documents & Submission"])
@@ -156,233 +157,289 @@ def delete_draft(draft_id: int, db: Session = Depends(get_db)):
         return {"status": "deleted", "message": "Qoralama o'chirildi"}
     raise HTTPException(status_code=404, detail="Qoralama topilmadi")
 
-@router.post("/validate")
-def validate_rows(data: Dict[str, Any], db: Session = Depends(get_db)):
-    """
-    Validate grid rows according to business rules:
-    - Product type is required
-    - Quantity must be > 0
-    - Price buy must be > 0
-    - Price sale must be >= Price buy (warn or error)
-    - Brand is recommended
-    """
-    rows = data.get("rows", [])
-    errors = []
-    warnings = []
+def _num(val: Any, default: float = 0.0) -> float:
+    try:
+        return float(val) if val not in (None, "") else default
+    except (TypeError, ValueError):
+        return default
+
+def _txt(val: Any) -> str:
+    return str(val or "").strip()
+
+def _is_useful(r: Dict[str, Any]) -> bool:
+    return bool(_txt(r.get("product_type"))) or _num(r.get("price_buy")) > 0
+
+def _check_rows(rows: List[Dict[str, Any]], header: Dict[str, Any], settings: Dict[str, Any], refs: RefLookup, check_header: bool):
+    """Biznes qoidalari bo'yicha tekshiruv. Qaytaradi: (xatolar, ogohlantirishlar, tayyorlangan qatorlar)"""
+    errors: List[Dict[str, Any]] = []
+    warnings: List[Dict[str, Any]] = []
+    prepared: List[Dict[str, Any]] = []
+
+    def err(row: int, field: str, msg: str):
+        errors.append({"row": row, "field": field, "message": f"{row}-qator: {msg}" if row else msg})
+
+    currency = _txt(header.get("currency")) or "UZS"
+    rate = _num(header.get("rate"), 0.0)
+    if check_header:
+        if not _txt(header.get("counterparty_id")):
+            err(0, "counterparty", "Yetkazib beruvchi (kontragent) tanlanmagan!")
+        if not _txt(header.get("store_id")):
+            err(0, "store", "Ombor (склад) tanlanmagan!")
+    if currency == "USD":
+        if not settings.get("usd_enabled"):
+            err(0, "currency", "USD kirim sozlamalarda yoqilmagan.")
+        elif rate <= 0:
+            err(0, "rate", "USD kursi kiritilmagan!")
+    elif currency != "UZS":
+        err(0, "currency", f"Valyuta qo'llab-quvvatlanmaydi: {currency}")
 
     if not rows:
-        return {"valid": False, "errors": [{"row": 0, "field": "rows", "message": "Jadvalda hech bo'lmaganda 1 ta tovar qatori bo'lishi kerak."}]}
+        err(0, "rows", "Jadvalda hech bo'lmaganda 1 ta tovar qatori bo'lishi kerak.")
 
+    seen_variants: Dict[tuple, int] = {}
     for idx, r in enumerate(rows, 1):
-        p_type = (r.get("product_type") or "").strip()
-        if not p_type:
-            errors.append({"row": idx, "field": "product_type", "message": f"{idx}-qator: 'Вид товара' tanlanmagan!"})
+        pt = refs.product_type(r.get("product_type"))
+        if not _txt(r.get("product_type")):
+            err(idx, "product_type", "'Вид товара' tanlanmagan!")
+        elif not pt:
+            err(idx, "product_type", f"'{_txt(r.get('product_type'))}' ierarxiyada yo'q — Manbalar bo'limiga qo'shing.")
+        elif not pt["group_code"]:
+            err(idx, "product_type", f"'{pt['name']}' uchun guruh kodi belgilanmagan (Manbalar → Ierarxiya).")
 
-        qty = float(r.get("quantity") or 0)
+        season_code = refs.season_code(r.get("collection"))
+        if not _txt(r.get("collection")):
+            err(idx, "collection", "'Коллекция' kiritilmagan!")
+        elif not season_code:
+            err(idx, "collection", f"'{_txt(r.get('collection'))}' kolleksiyasi spravochnikda yo'q (mavsum kodi topilmadi).")
+
+        qty = _num(r.get("quantity"))
+        p_buy = _num(r.get("price_buy"))
+        p_sale = _num(r.get("price_sale"))
         if qty <= 0:
-            errors.append({"row": idx, "field": "quantity", "message": f"{idx}-qator: Soni 0 dan katta bo'lishi kerak!"})
-
-        p_buy = float(r.get("price_buy") or 0)
+            err(idx, "quantity", "Soni 0 dan katta bo'lishi kerak!")
         if p_buy <= 0:
-            errors.append({"row": idx, "field": "price_buy", "message": f"{idx}-qator: Sotib olish narxi (Закупочная цена) kiritilmagan!"})
-
-        p_sale = float(r.get("price_sale") or 0)
+            err(idx, "price_buy", "Sotib olish narxi (Закупочная цена) kiritilmagan!")
         if p_sale <= 0:
-            errors.append({"row": idx, "field": "price_sale", "message": f"{idx}-qator: Sotish narxi (Цена продажи) kiritilmagan!"})
-        elif p_buy > 0 and p_sale < p_buy:
-            warnings.append({"row": idx, "field": "price_sale", "message": f"{idx}-qator: Sotish narxi sotib olish narxidan kam (zarar)!"})
+            err(idx, "price_sale", "Sotish narxi (Цена продажи) kiritilmagan!")
+        elif p_buy > 0 and p_sale < p_buy * (rate if currency == "USD" else 1.0):
+            warnings.append({"row": idx, "field": "price_sale", "message": f"{idx}-qator: Sotish narxi tan narxdan kam (zarar)!"})
 
+        color = _txt(r.get("color"))
+        color_code = refs.color_code(color)
+        if settings.get("color_enabled"):
+            if not color:
+                err(idx, "color", "Rang tanlanmagan!")
+            elif not color_code:
+                err(idx, "color", f"'{color}' rangi spravochnikda yo'q yoki uning qisqa kodi (BLK, WHT...) belgilanmagan.")
+
+        size = _txt(r.get("size"))
+        if settings.get("size_enabled"):
+            if not size:
+                err(idx, "size", "Razmer kiritilmagan!")
+            elif is_multi_size(size):
+                err(idx, "size", f"Bitta qatorda bir nechta razmer ({size}). Ctrl+Enter bilan razmerlarga ajrating.")
+
+        custom_articul = _txt(r.get("articul")) if r.get("custom_articul") else ""
+        model_key = _txt(r.get("model_key")) or f"row{idx}"
+        variant = ("custom", custom_articul) if custom_articul else (
+            model_key,
+            color_code if settings.get("color_enabled") else "",
+            normalize_size(size) if settings.get("size_enabled") else "",
+        )
+        if variant in seen_variants:
+            err(idx, "articul", f"{seen_variants[variant]}-qator bilan bir xil tovar (model/rang/razmer takrorlangan). Sonini bitta qatorga jamlang.")
+        else:
+            seen_variants[variant] = idx
+
+        prepared.append({
+            "row_index": idx,
+            "model_key": model_key,
+            "custom_articul": custom_articul,
+            "product_type": pt["name"] if pt else _txt(r.get("product_type")),
+            "category": pt["category"] if pt else "",
+            "group_name": pt["group_name"] if pt else "",
+            "group_code": pt["group_code"] if pt else "",
+            "season_code": season_code or "",
+            "collection": _txt(r.get("collection")),
+            "season": _txt(r.get("season")),
+            "brand": _txt(r.get("brand")),
+            "factory_code": _txt(r.get("factory_code")),
+            "description": _txt(r.get("description")),
+            "color": color,
+            "color_code": color_code or "",
+            "size": size,
+            "country": _txt(r.get("country")),
+            "quantity": qty,
+            "price_buy": p_buy,
+            "price_sale": p_sale,
+            "ai_generated": bool(r.get("ai_generated")),
+            "ai_confidence": _num(r.get("ai_confidence"), 1.0) if r.get("ai_confidence") is not None else None,
+        })
+
+    return errors, warnings, prepared
+
+@router.post("/validate")
+def validate_rows(data: Dict[str, Any], db: Session = Depends(get_db)):
+    """Qatorlarni (va sarlavha yuborilsa — kontragent/ombor/valyutani) tekshiradi"""
+    rows = [r for r in data.get("rows", []) if _is_useful(r)]
+    header = data.get("header") or {}
+    errors, warnings, _ = _check_rows(rows, header, get_app_settings(db), RefLookup(db), check_header=bool(header))
     return {
         "valid": len(errors) == 0,
         "errors": errors,
         "warnings": warnings,
         "total_rows": len(rows),
-        "valid_rows": len(rows) - len(set(e["row"] for e in errors))
+        "valid_rows": len(rows) - len(set(e["row"] for e in errors if e["row"]))
     }
 
+# Model raqamlarini ajratish bir vaqtda faqat bitta so'rovda (ikki omborchi bir xil raqam olmasin)
+_allocation_lock = asyncio.Lock()
+
 @router.post("/submit-moysklad")
-async def submit_to_moysklad(data: Dict[str, Any], db: Session = Depends(get_db)):
+async def submit_to_moysklad(data: Dict[str, Any], request: Request, db: Session = Depends(get_db)):
     """
-    Finalize receipt, allocate permanent articul numbers, create products & supply doc in MoySklad,
-    and send Telegram alert.
+    Tekshiradi → model raqamlarini doimiy ajratadi → MoySklad'da tovar (bulk) va Приемка yaratadi → Telegram.
+    Xato bo'lsa qoralama saqlanib qoladi; qayta yuborilganda aynan shu artikullar ishlatiladi.
     """
     header = data.get("header", {})
-    raw_rows = data.get("rows", [])
+    rows = [r for r in data.get("rows", []) if _is_useful(r)]
+    settings = get_app_settings(db)
+    refs = RefLookup(db)
 
-    # 1. Validation check
-    val_res = validate_rows({"rows": raw_rows}, db)
-    if not val_res["valid"]:
-        raise HTTPException(
-            status_code=400,
-            detail={"message": "Hujjatda xatoliklar mavjud!", "errors": val_res["errors"]}
-        )
+    errors, _, prepared = _check_rows(rows, header, settings, refs, check_header=True)
+    if errors:
+        raise HTTPException(status_code=400, detail={"message": "Hujjatda xatoliklar mavjud!", "errors": errors})
 
-    # 2. Process rows and allocate sequential Articul codes
-    processed_items = []
-    total_sum_buy = 0.0
-    total_sum_sale = 0.0
-    total_qty = 0.0
+    doc_number = _txt(header.get("doc_number")) or f"PRX-{datetime.datetime.now().strftime('%y%m%d-%H%M')}"
+    currency = _txt(header.get("currency")) or "UZS"
+    rate = _num(header.get("rate"), 1.0) if currency == "USD" else 1.0
+    scope = f"draft{header.get('draft_id')}" if header.get("draft_id") else f"doc{doc_number}"
 
-    for idx, r in enumerate(raw_rows, 1):
-        p_type = r.get("product_type", "").strip()
-        coll = r.get("collection", "AW26").strip()
-        brand = r.get("brand", "").strip()
-        desc = r.get("description", "").strip()
-        factory_code = r.get("factory_code", "").strip()
-        model = r.get("model_code", "").strip()
-        qty = float(r.get("quantity") or 1.0)
-        p_buy = float(r.get("price_buy") or 0.0)
-        p_sale = float(r.get("price_sale") or 0.0)
-        color = r.get("color", "").strip()
-        country = r.get("country", "").strip()
-        size = r.get("size", "").strip()
+    # 1. Model raqamlari: MoySklad'dagi eng katta raqamdan keyin, qoralama bo'yicha doimiy
+    try:
+        # Raqam ajratishdan oldin — allaqachon yuborilgan hujjat qayta yuborilsa raqamlar behuda sarflanmasin
+        if await ms_service.supply_exists(doc_number):
+            raise HTTPException(status_code=409, detail=f"MoySklad'da №{doc_number} raqamli Приемка allaqachon mavjud. Hujjat raqamini o'zgartiring.")
+        ms_max = await ms_service.get_max_model_number()
+    except MoySkladError as e:
+        raise HTTPException(status_code=502, detail=f"MoySklad'dan ma'lumot olib bo'lmadi: {e}")
+    async with _allocation_lock:
+        sync_counter(db, ms_max)
+        numbers = allocate_model_numbers(db, scope, [p["model_key"] for p in prepared if not p["custom_articul"]])
 
-        # Calculation
-        calc = calculate_row_formulas(
-            db=db,
-            product_type_name=p_type,
-            collection_name=coll,
-            brand_name=brand,
-            description=desc,
-            model_code=factory_code or model,
-            quantity=qty,
-            price_buy=p_buy,
-            price_sale=p_sale
-        )
-
-        # Allocate permanent sequential articul if not explicitly provided
-        custom_art = (r.get("custom_articul") or r.get("articul") or "").strip()
-        if custom_art and not custom_art.startswith("TEMP"):
-            articul_code = custom_art
+    items = []
+    seen_articuls: Dict[str, int] = {}
+    for p in prepared:
+        if p["custom_articul"]:
+            model_code = ""
+            articul = p["custom_articul"]
         else:
-            # Atomic increment in DB
-            next_num = get_next_articul_number(db, increment=True)
-            articul_code = f"{calc['season_code']}{calc['group_code']}{next_num:05d}"
+            model_code = build_model_code(p["season_code"], p["group_code"], numbers[p["model_key"]])
+            articul = build_articul(model_code, p["color_code"], p["size"], settings)
+        if articul in seen_articuls:
+            raise HTTPException(status_code=400, detail={"message": "Hujjatda xatoliklar mavjud!", "errors": [{
+                "row": p["row_index"], "field": "articul",
+                "message": f"{p['row_index']}-qator: artikul {articul} {seen_articuls[articul]}-qatorda ham bor."}]})
+        seen_articuls[articul] = p["row_index"]
+        money = calc_money(p["quantity"], p["price_buy"], p["price_sale"], rate)
+        items.append({
+            **{k: v for k, v in p.items() if k not in ("model_key", "custom_articul", "color_code", "group_code", "season_code")},
+            "model_code": model_code,
+            "articul": articul,
+            "full_name": build_full_name(p["product_type"], p["description"], p["brand"], p["factory_code"]),
+            **money,
+        })
 
-        item_dict = {
-            "row_index": idx,
-            "articul": articul_code,
-            "product_type": p_type,
-            "category": calc["category"],
-            "group_name": calc["group_name"],
-            "brand": brand,
-            "factory_code": factory_code,
-            "collection": coll,
-            "season": r.get("season", "Весна-Осень"),
-            "size": size,
-            "description": desc,
-            "model_code": model,
-            "color": color,
-            "country": country,
-            "quantity": qty,
-            "price_buy": p_buy,
-            "price_sale": p_sale,
-            "sum_buy": calc["sum_buy"],
-            "sum_sale": calc["sum_sale"],
-            "markup_pct": calc["markup_pct"],
-            "full_name": calc["full_name"],
-            "ai_generated": bool(r.get("ai_generated")),
-            "ai_confidence": float(r.get("ai_confidence", 1.0)) if r.get("ai_confidence") is not None else None
-        }
+    total_sum_buy = round(sum(it["sum_buy"] for it in items), 2)
+    total_sum_sale = round(sum(it["sum_sale"] for it in items), 2)
+    total_qty = sum(it["quantity"] for it in items)
 
-        total_sum_buy += calc["sum_buy"]
-        total_sum_sale += calc["sum_sale"]
-        total_qty += qty
-        processed_items.append(item_dict)
-
-    # 3. Create Document Record in DB (pending status)
-    doc_number = header.get("doc_number") or f"PRX-{datetime.datetime.now().strftime('%y%m%d-%H%M')}"
+    # 2. Hujjat yozuvi (tarix uchun)
     new_doc = PrixodDocument(
         doc_number=doc_number,
-        counterparty_name=header.get("counterparty_name", "Yetkazib beruvchi"),
-        counterparty_id=header.get("counterparty_id"),
-        store_name=header.get("store_name", "Основной склад"),
-        store_id=header.get("store_id"),
-        currency=header.get("currency", "USD"),
-        total_sum_buy=round(total_sum_buy, 2),
-        total_sum_sale=round(total_sum_sale, 2),
+        counterparty_name=_txt(header.get("counterparty_name")),
+        counterparty_id=_txt(header.get("counterparty_id")),
+        store_name=_txt(header.get("store_name")),
+        store_id=_txt(header.get("store_id")),
+        currency=currency,
+        total_sum_buy=total_sum_buy,
+        total_sum_sale=total_sum_sale,
         total_qty=total_qty,
-        total_items=len(processed_items),
+        total_items=len(items),
         status="sending",
-        notes=header.get("notes")
+        notes=header.get("notes"),
     )
     db.add(new_doc)
     db.flush()
-
-    # Add items
-    for p_item in processed_items:
-        db_item = PrixodItem(
-            document_id=new_doc.id,
-            **p_item
-        )
-        db.add(db_item)
+    item_columns = {c.name for c in PrixodItem.__table__.columns}
+    for it in items:
+        db.add(PrixodItem(document_id=new_doc.id, **{k: v for k, v in it.items() if k in item_columns}))
     db.commit()
 
-    # 4. Call MoySklad API to create Supply
+    # 3. MoySklad
     ms_result = await ms_service.create_supply_document(
         organization_id=header.get("organization_id"),
-        counterparty_id=header.get("counterparty_id"),
-        store_id=header.get("store_id"),
-        items=processed_items,
+        counterparty_id=_txt(header.get("counterparty_id")),
+        store_id=_txt(header.get("store_id")),
+        items=items,
         doc_number=doc_number,
-        notes=header.get("notes")
+        notes=header.get("notes"),
+        doc_date=_txt(header.get("doc_date")) or _txt(header.get("date")),
+        currency=currency,
+        rate=rate,
     )
 
-    if ms_result.get("status") == "success":
-        new_doc.status = "sent"
-        new_doc.moysklad_document_id = ms_result.get("document_id")
-        new_doc.moysklad_document_name = ms_result.get("document_name")
-        db.commit()
-
-        # Clear draft after successful creation
-        draft_id = header.get("draft_id")
-        draft = None
-        if draft_id:
-            draft = db.query(DraftState).filter(DraftState.id == int(draft_id)).first()
-        if not draft and doc_number:
-            draft = db.query(DraftState).filter(DraftState.doc_number == doc_number).first()
-        if not draft:
-            draft = db.query(DraftState).filter(DraftState.draft_key == "current_grid").first()
-        if draft:
-            db.delete(draft)
-            db.commit()
-
-        # Send Telegram notification
-        await tg_service.notify_prixod_created(
-            doc_number=doc_number,
-            counterparty=header.get("counterparty_name", ""),
-            store=header.get("store_name", ""),
-            total_items=len(processed_items),
-            total_qty=total_qty,
-            total_sum_buy=total_sum_buy,
-            total_sum_sale=total_sum_sale,
-            moysklad_url=ms_result.get("moysklad_url")
-        )
-
-        return {
-            "status": "success",
-            "message": "Приемка (Kirim) MoySklad'da muvaffaqiyatli yaratildi!",
-            "document_id": new_doc.id,
-            "moysklad_document_id": ms_result.get("document_id"),
-            "moysklad_document_name": ms_result.get("document_name"),
-            "moysklad_url": ms_result.get("moysklad_url"),
-            "total_items": len(processed_items),
-            "total_sum_buy": total_sum_buy,
-            "total_sum_sale": total_sum_sale
-        }
-    else:
+    user = getattr(request.state, "user", {}) or {}
+    if ms_result.get("status") != "success":
         error_msg = ms_result.get("message", "Noma'lum xatolik")
         new_doc.status = "error"
         new_doc.error_message = error_msg
         db.commit()
+        await tg_service.notify_prixod_error(doc_number, error_msg, user=user.get("name"))
+        raise HTTPException(status_code=502, detail=f"MoySklad'ga yuborishda xatolik: {error_msg}")
 
-        # Send Telegram error alert
-        await tg_service.notify_prixod_error(doc_number, error_msg)
+    new_doc.status = "sent"
+    new_doc.moysklad_document_id = ms_result.get("document_id")
+    new_doc.moysklad_document_name = ms_result.get("document_name")
+    db.commit()
 
-        raise HTTPException(
-            status_code=500,
-            detail=f"MoySklad'ga yuborishda xatolik yuz berdi: {error_msg}"
-        )
+    # Qoralamani o'chiramiz (ajratilgan model raqamlari tarix uchun qoladi)
+    draft = None
+    if header.get("draft_id"):
+        draft = db.query(DraftState).filter(DraftState.id == int(header["draft_id"])).first()
+    if not draft and doc_number:
+        draft = db.query(DraftState).filter(DraftState.doc_number == doc_number).first()
+    if draft:
+        db.delete(draft)
+    # Raqamlar MoySklad artikullarida saqlandi; ajratmalarni o'chiramiz — SQLite qoralama ID sini qayta bersa ham eski raqamlar qaytmasin
+    db.query(ModelAllocation).filter(ModelAllocation.alloc_key.like(f"{scope}:%")).delete(synchronize_session=False)
+    db.commit()
+
+    await tg_service.notify_prixod_created(
+        doc_number=ms_result.get("document_name") or doc_number,
+        counterparty=_txt(header.get("counterparty_name")),
+        store=_txt(header.get("store_name")),
+        total_items=len(items),
+        total_qty=total_qty,
+        total_sum_buy=total_sum_buy,
+        total_sum_sale=total_sum_sale,
+        currency=currency,
+        moysklad_url=ms_result.get("moysklad_url"),
+        user=user.get("name"),
+    )
+
+    return {
+        "status": "success",
+        "message": "Приемка (Kirim) MoySklad'da muvaffaqiyatli yaratildi!",
+        "document_id": new_doc.id,
+        "moysklad_document_id": ms_result.get("document_id"),
+        "moysklad_document_name": ms_result.get("document_name"),
+        "moysklad_url": ms_result.get("moysklad_url"),
+        "total_items": len(items),
+        "total_sum_buy": total_sum_buy,
+        "total_sum_sale": total_sum_sale,
+        "articuls": [{"row": it["row_index"], "model": it["model_code"], "articul": it["articul"]} for it in items],
+    }
 
 @router.get("/history")
 def get_documents_history(db: Session = Depends(get_db)):

@@ -4,10 +4,10 @@ import logging
 from typing import Dict, Any, List, Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-import httpx
 
 from backend.database import get_db
 from backend.services.moysklad_service import MoySkladService
+from backend.services.gateway_core import gateway
 from backend.models import PrixodDocument, ProductType, DraftState
 import json
 
@@ -18,6 +18,25 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/dashboard", tags=["Dashboard & Analytics"])
 ms_service = MoySkladService()
+
+class _GatewayResponse:
+    def __init__(self, data: Any):
+        self._data = data
+        self.status_code = data.get("status_code", 500) if isinstance(data, dict) and data.get("error") else 200
+
+    def json(self) -> Any:
+        return self._data
+
+class GatewayClient:
+    """httpx.AsyncClient o'rnida: dashboard so'rovlari ham Gateway limiti (parallel/tezlik, 429 retry) orqali o'tadi"""
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def get(self, url: str, headers: Optional[Dict[str, str]] = None) -> _GatewayResponse:
+        return _GatewayResponse(await gateway.execute_request("GET", url))
 
 CACHE_DIR = BASE_DIR / "cache"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -68,7 +87,7 @@ async def get_dashboard_stats(force_refresh: bool = False, db: Session = Depends
     stock_rows = []
     folder_map = {}
     
-    async with httpx.AsyncClient(timeout=25.0) as client:
+    async with GatewayClient() as client:
         try:
             req_supp = client.get(
                 f"{ms_service.base_url}/entity/supply?expand=agent,store&order=moment,desc&limit=100",
@@ -164,16 +183,8 @@ async def get_dashboard_stats(force_refresh: bool = False, db: Session = Depends
         "Аксессуары": 0.0
     }
 
-    # Standard distribution fallback for supplies without itemized positions
-    std_shares = {
-        "Верхняя одежда": 0.32,
-        "Одежда Топ": 0.24,
-        "Одежда Боттом": 0.16,
-        "Одежда Комплект": 0.10,
-        "Обувь": 0.08,
-        "Нижнее белье": 0.05,
-        "Аксессуары": 0.05
-    }
+    # Ro'yxatda yo'q guruhlar va pozitsiyalari yuklanmagan kirimlar — to'qib taqsimlanmaydi, alohida ko'rsatiladi
+    OTHER_CATEGORY = "Boshqa / aniqlanmagan"
 
     for s in supplies_raw:
         s_id = s.get("id")
@@ -187,12 +198,11 @@ async def get_dashboard_stats(force_refresh: bool = False, db: Session = Depends
         # Determine itemized categories for this specific supply
         s_cats = supply_categories.get(s_id, {})
         if not s_cats and sum_val > 0:
-            # Map proportionally if positions were not itemized in MoySklad
-            s_cats = {c: round(sum_val * sh, 2) for c, sh in std_shares.items()}
+            s_cats = {OTHER_CATEGORY: sum_val}
 
         for c_name, c_amt in s_cats.items():
-            if c_name in real_category_sums:
-                real_category_sums[c_name] += c_amt
+            key = c_name if c_name in real_category_sums else OTHER_CATEGORY
+            real_category_sums[key] = real_category_sums.get(key, 0.0) + c_amt
 
         # Aggregate daily timeline
         if moment_str:
@@ -263,7 +273,8 @@ async def get_dashboard_stats(force_refresh: bool = False, db: Session = Depends
         "Одежда Комплект": "#10B981",   # Emerald Green
         "Обувь": "#0284C7",              # Sky Blue
         "Нижнее белье": "#EC4899",        # Hot Pink
-        "Аксессуары": "#14B8A6"           # Teal
+        "Аксессуары": "#14B8A6",          # Teal
+        OTHER_CATEGORY: "#64748B"         # Slate
     }
 
     all_cat_total = sum(real_category_sums.values())
@@ -331,7 +342,7 @@ _cp_name_cache: Dict[str, str] = {}
 _store_name_cache: Dict[str, str] = {}
 _name_cache_timestamp: float = 0.0
 
-async def _ensure_name_caches(client: httpx.AsyncClient):
+async def _ensure_name_caches(client: "GatewayClient"):
     global _cp_name_cache, _store_name_cache, _name_cache_timestamp
     now = datetime.datetime.now().timestamp()
     if not _cp_name_cache or (now - _name_cache_timestamp > 300):
@@ -370,7 +381,7 @@ async def get_all_supplies(
     if search_query:
         filter_param = f"&search={search_query}"
 
-    async with httpx.AsyncClient(timeout=25.0) as client:
+    async with GatewayClient() as client:
         try:
             # Ensure name caches for reliable resolution
             await _ensure_name_caches(client)
@@ -496,7 +507,7 @@ async def get_point_in_time_stock(moment: Optional[str] = None):
 
     url = f"{ms_service.base_url}/report/turnover/all?limit=1000&momentFrom=2026-01-01%2000:00:00&momentTo={moment_str}"
 
-    async with httpx.AsyncClient(timeout=25.0) as client:
+    async with GatewayClient() as client:
         try:
             resp = await client.get(url, headers=ms_service._headers())
             if resp.status_code == 200:

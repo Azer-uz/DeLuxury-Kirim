@@ -30,7 +30,7 @@ const Grid = {
       const resp = await fetch('/api/articul/counter');
       if (resp.ok) {
         const data = await resp.json();
-        this.baseCounter = data.last_number || 500;
+        this.baseCounter = data.last_number || 0;
         const counterInput = document.getElementById('settings-articul-counter');
         if (counterInput) counterInput.value = this.baseCounter;
       }
@@ -39,8 +39,70 @@ const Grid = {
     }
   },
 
+  // ================= MODEL GURUHLASH =================
+  // Har bir qatorda model_key bor. Bir modelning rang/razmer variantlari (Ctrl+Enter bilan ajratilgan) bir xil
+  // model_key ni bo'lishadi va bitta model raqamini oladi. Haqiqiy raqamni yuborishda backend beradi.
+  newModelKey() {
+    return 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  },
+
+  isUsefulRow(r) {
+    return !!(r && ((r.product_type || '').trim() || (parseFloat(r.price_buy) || 0) > 0));
+  },
+
+  getCurrency() {
+    if (!References.settings.usd_enabled) return 'UZS';
+    return document.getElementById('header-currency')?.value === 'USD' ? 'USD' : 'UZS';
+  },
+
+  // USD kirimda tan narx dollarda, sotuv narxi so'mda — ustama shu kurs bilan hisoblanadi
+  getRate() {
+    if (this.getCurrency() !== 'USD') return 1;
+    return parseFloat(document.getElementById('header-rate')?.value) || 0;
+  },
+
+  computeModelOrdinals() {
+    const ordinals = new Map();
+    this.rows.forEach(r => {
+      if (!r.model_key) r.model_key = this.newModelKey();
+      if (this.isUsefulRow(r) && !ordinals.has(r.model_key)) ordinals.set(r.model_key, ordinals.size);
+    });
+    return ordinals;
+  },
+
+  calcRow(rowIdx, ordinals = null) {
+    const row = this.rows[rowIdx];
+    const map = ordinals || this.computeModelOrdinals();
+    const ord = map.has(row.model_key) ? map.get(row.model_key) : null;
+    const calc = References.calculateRow(row, ord, this.baseCounter, this.getRate());
+    if (!this.isUsefulRow(row)) {
+      // Bo'sh qator — model/artikul ko'rsatilmaydi
+      calc.model_code = '';
+      calc.articul = '';
+    }
+    return calc;
+  },
+
+  // Bitta qator o'zgarganda boshqa qatorlarning model raqami ham surilishi mumkin — avto kataklarni yangilaymiz
+  refreshAutoCells() {
+    const ordinals = this.computeModelOrdinals();
+    const trs = document.querySelectorAll('#grid-tbody tr');
+    this.rows.forEach((row, i) => {
+      const calc = this.calcRow(i, ordinals);
+      row.model_code = calc.model_code || '';
+      row.articul = calc.articul || '';
+      const tr = trs[i];
+      if (!tr) return;
+      const elModel = tr.querySelector('.cell-model');
+      if (elModel) elModel.textContent = row.model_code || '-';
+      const elArt = tr.querySelector('.cell-articul');
+      if (elArt) elArt.textContent = row.articul || '-';
+    });
+  },
+
   createEmptyRow(defaultValues = {}) {
     return {
+      model_key: defaultValues.model_key || this.newModelKey(),
       country: defaultValues.country || "",
       product_type: defaultValues.product_type || "",
       category: defaultValues.category || "",
@@ -88,6 +150,8 @@ const Grid = {
     const cloned = JSON.parse(JSON.stringify(source));
     cloned.articul = ""; // will be recomputed sequentially
     cloned.code = "";
+    // Nusxa — yangi model (bir modelning rang/razmerlari uchun Ctrl+Enter bilan ajratish ishlatiladi)
+    cloned.model_key = this.newModelKey();
     this.rows.splice(index + 1, 0, cloned);
     this.recalculateAll();
     this.render();
@@ -157,6 +221,7 @@ const Grid = {
   },
 
   recalculateAll() {
+    const ordinals = this.computeModelOrdinals();
     this.rows.forEach((row, i) => {
       // Sync colors array and single color
       if (!row.colors || !Array.isArray(row.colors)) {
@@ -165,7 +230,7 @@ const Grid = {
         row.color = row.colors[0];
       }
 
-      const calc = References.calculateRow(row, i, this.baseCounter);
+      const calc = this.calcRow(i, ordinals);
       row.category = calc.category || '';
       row.group_name = calc.group_name || '';
       row.code = calc.code || '';
@@ -179,15 +244,15 @@ const Grid = {
     this.updateStats();
   },
 
-  getCurrencySymbol() {
-    const cur = document.getElementById('header-currency')?.value || 'UZS';
+  getCurrencySymbol(currency = null) {
+    const cur = currency || this.getCurrency();
     if (cur === 'USD') return '$';
-    if (cur === 'RUB') return '₽';
     return 'so\'m';
   },
 
-  formatMoney(amount) {
-    const sym = this.getCurrencySymbol();
+  // currency berilmasa — hujjat (tan narx) valyutasi. Sotuv narxi doim so'mda: formatMoney(x, 'UZS')
+  formatMoney(amount, currency = null) {
+    const sym = this.getCurrencySymbol(currency);
     const formatted = Number(amount || 0).toLocaleString(undefined, {
       minimumFractionDigits: sym === 'so\'m' ? 0 : 2,
       maximumFractionDigits: 2
@@ -212,22 +277,28 @@ const Grid = {
       totalSumSale += parseFloat(r.sum_sale) || 0;
     });
 
-    const expectedProfit = totalSumSale - totalSumBuy;
+    // Tan narx hujjat valyutasida (so'm yoki $), sotuv doim so'mda — foyda va ustama so'mga keltirib hisoblanadi
+    const rate = this.getRate() || 0;
+    const sumBuyInSale = totalSumBuy * rate;
+    const expectedProfit = totalSumSale - sumBuyInSale;
     let avgMarkup = 0;
-    if (totalSumBuy > 0) {
-      avgMarkup = Math.round(((totalSumSale / totalSumBuy) - 1) * 1000) / 10;
+    if (sumBuyInSale > 0) {
+      avgMarkup = Math.round(((totalSumSale / sumBuyInSale) - 1) * 1000) / 10;
     }
 
     // Update Currency in column headers
     const sym = this.getCurrencySymbol();
+    const saleSym = this.getCurrencySymbol('UZS');
     const thPriceBuy = document.getElementById('th-price-buy');
     if (thPriceBuy) thPriceBuy.textContent = `Цена закупа (${sym}) *`;
     const thPriceSale = document.getElementById('th-price-sale');
-    if (thPriceSale) thPriceSale.textContent = `Цена продажи (${sym}) *`;
+    if (thPriceSale) thPriceSale.textContent = `Цена продажи (${saleSym}) *`;
     const thSumBuy = document.getElementById('th-sum-buy');
     if (thSumBuy) thSumBuy.textContent = `Сумма закупа (${sym})`;
     const thSumSale = document.getElementById('th-sum-sale');
-    if (thSumSale) thSumSale.textContent = `Сумма продажи (${sym})`;
+    if (thSumSale) thSumSale.textContent = `Сумма продажи (${saleSym})`;
+    const thColor = document.getElementById('th-color');
+    if (thColor) thColor.style.display = References.settings.color_enabled ? '' : 'none';
 
     // Update DOM safely
     const elItems = document.getElementById('stat-total-items');
@@ -240,13 +311,13 @@ const Grid = {
     if (elSumBuy) elSumBuy.textContent = this.formatMoney(totalSumBuy);
 
     const elSumSale = document.getElementById('stat-sum-sale');
-    if (elSumSale) elSumSale.textContent = this.formatMoney(totalSumSale);
+    if (elSumSale) elSumSale.textContent = this.formatMoney(totalSumSale, 'UZS');
 
     const elMarkup = document.getElementById('stat-avg-markup');
     if (elMarkup) elMarkup.textContent = `${avgMarkup}%`;
 
     const elProfit = document.getElementById('stat-expected-profit');
-    if (elProfit) elProfit.textContent = this.formatMoney(expectedProfit);
+    if (elProfit) elProfit.textContent = this.formatMoney(expectedProfit, 'UZS');
   },
 
   render() {
@@ -260,7 +331,8 @@ const Grid = {
     this.rows.forEach((row, idx) => {
       const isLowConf = (field) => row.ai_low_confidence_fields && row.ai_low_confidence_fields.includes(field);
       const sumBuyVal = this.formatMoney(row.sum_buy || 0);
-      const sumSaleVal = this.formatMoney(row.sum_sale || 0);
+      const sumSaleVal = this.formatMoney(row.sum_sale || 0, 'UZS');
+      const sizePlaceholder = References.settings.size_enabled ? 'S, M, L ⏎Ctrl' : 'M';
       const markupVal = Number(row.markup_pct || 0);
 
       html += `
@@ -324,7 +396,8 @@ const Grid = {
           <!-- O'lcham -->
           <td>
             <input type="text" class="cell-input ${isLowConf('size') ? 'cell-ai-highlight' : ''}" 
-                   list="dl-sizes" data-field="size" data-row="${idx}" value="${this.escapeHtml(row.size || '')}" placeholder="M">
+                   list="dl-sizes" data-field="size" data-row="${idx}" value="${this.escapeHtml(row.size || '')}" placeholder="${sizePlaceholder}"
+                   title="${References.settings.size_enabled ? 'Bir nechta razmer: S, M, L yozib Ctrl+Enter — har biriga alohida qator (bitta model)' : ''}">
           </td>
 
           <!-- Tavsif / Izoh -->
@@ -338,9 +411,9 @@ const Grid = {
             <span class="cell-auto cell-model" style="color: #fbbf24; font-weight: 700; letter-spacing: 0.5px; font-family: monospace; display: block; padding: 2px 4px;">${this.escapeHtml(row.model_code || '-')}</span>
           </td>
 
-          <!-- Kod (Auto) -->
+          <!-- Kod (MoySklad avtomatik beradi) -->
           <td style="text-align: center;">
-            <span class="cell-auto cell-code" style="color: #38bdf8; font-weight: 700; letter-spacing: 0.5px;">${this.escapeHtml(row.code || '-')}</span>
+            <span class="cell-auto cell-code" style="color: var(--text-dim); font-size: 0.72rem;" title="Tovar kodini MoySklad o'zi beradi">MoySklad</span>
           </td>
 
           <!-- Artikul (Auto) -->
@@ -389,7 +462,7 @@ const Grid = {
           </td>
 
           <!-- Rang (Inline Tag Input with Autocomplete & Top 10 Pills - ENG OXIRGI USTUN!) -->
-          <td class="cell-color-td" data-row="${idx}">
+          <td class="cell-color-td" data-row="${idx}" style="${References.settings.color_enabled ? '' : 'display: none;'}">
             <div class="color-tag-cell" id="color-cell-${idx}">
               ${((row.colors && row.colors.length) ? row.colors : (row.color ? [row.color] : [])).map(c => `
                 <span class="color-tag-chip">
@@ -488,10 +561,11 @@ const Grid = {
           }
 
           // Trigger immediate recalculation for this row
-          const calc = References.calculateRow(this.rows[rowIdx], rowIdx, this.baseCounter);
+          const calc = this.calcRow(rowIdx);
           this.rows[rowIdx].category = calc.category;
           this.rows[rowIdx].group_name = calc.group_name;
           this.rows[rowIdx].code = calc.code;
+          this.rows[rowIdx].model_code = calc.model_code;
           this.rows[rowIdx].articul = calc.articul;
           this.rows[rowIdx].full_name = calc.full_name;
           this.rows[rowIdx].markup_pct = calc.markup_pct;
@@ -506,10 +580,6 @@ const Grid = {
             if (elCat) elCat.textContent = calc.category || '-';
             const elGrp = tr.querySelector('.cell-grp');
             if (elGrp) elGrp.textContent = calc.group_name || '-';
-            const elCode = tr.querySelector('.cell-code');
-            if (elCode) elCode.textContent = calc.code || '-';
-            const elArt = tr.querySelector('.cell-articul');
-            if (elArt) elArt.textContent = calc.articul || '-';
             const elName = tr.querySelector('.cell-name');
             if (elName) elName.textContent = calc.full_name || '-';
 
@@ -527,8 +597,10 @@ const Grid = {
             const elSumBuy = tr.querySelector('.cell-sum-buy');
             if (elSumBuy) elSumBuy.textContent = this.formatMoney(calc.sum_buy);
             const elSumSale = tr.querySelector('.cell-sum-sale');
-            if (elSumSale) elSumSale.textContent = this.formatMoney(calc.sum_sale);
+            if (elSumSale) elSumSale.textContent = this.formatMoney(calc.sum_sale, 'UZS');
           }
+          // Model/artikul ustunlari (boshqa qatorlarning model tartibi ham surilishi mumkin)
+          this.refreshAutoCells();
           this.updateStats();
           this.triggerAutoSave();
         }
@@ -901,6 +973,13 @@ const Grid = {
         }
       }
 
+      // Ctrl + Enter (Razmer katagida) -> "S, M, L" ni bitta model ichida alohida qatorlarga ajratish
+      if (e.key === 'Enter' && e.ctrlKey && currentField === 'size') {
+        e.preventDefault();
+        this.applyInlineMultiColors(currentRow);
+        return;
+      }
+
       // Ctrl + D -> Duplicate Row
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
         e.preventDefault();
@@ -1020,7 +1099,8 @@ const Grid = {
         store_name: document.getElementById('header-store')?.selectedOptions[0]?.text || '',
         counterparty_id: document.getElementById('header-counterparty')?.value,
         counterparty_name: document.getElementById('header-counterparty')?.selectedOptions[0]?.text || '',
-        currency: document.getElementById('header-currency')?.value || 'UZS',
+        currency: this.getCurrency(),
+        rate: this.getCurrency() === 'USD' ? this.getRate() : null,
         draft_id: this.activeDraftId
       };
 
@@ -1068,9 +1148,12 @@ const Grid = {
           if (draft.header.doc_number) document.getElementById('header-doc-number').value = draft.header.doc_number;
           if (draft.header.store_id) document.getElementById('header-store').value = draft.header.store_id;
           if (draft.header.counterparty_id) document.getElementById('header-counterparty').value = draft.header.counterparty_id;
-          const cur = (draft.header.currency === 'USD') ? 'USD' : 'UZS';
+          const cur = (draft.header.currency === 'USD' && References.settings.usd_enabled) ? 'USD' : 'UZS';
           const curSelect = document.getElementById('header-currency');
           if (curSelect) curSelect.value = cur;
+          const rateInput = document.getElementById('header-rate');
+          if (rateInput && draft.header.rate) rateInput.value = draft.header.rate;
+          if (typeof syncCurrencyUI === 'function') syncCurrencyUI();
         }
         this.recalculateAll();
         this.render();
@@ -1350,7 +1433,7 @@ const Grid = {
     }
 
     // Update row in memory
-    const calc = References.calculateRow(row, rowIdx, this.baseCounter);
+    const calc = this.calcRow(rowIdx);
     row.articul = calc.articul;
     row.full_name = calc.full_name;
 
@@ -1401,7 +1484,7 @@ const Grid = {
     row.colors = row.colors.filter(c => c !== colorName);
     row.color = row.colors.length > 0 ? row.colors[0] : "";
 
-    const calc = References.calculateRow(row, rowIdx, this.baseCounter);
+    const calc = this.calcRow(rowIdx);
     row.articul = calc.articul;
     row.full_name = calc.full_name;
 
@@ -1445,21 +1528,28 @@ const Grid = {
 
     this.hideColorPopups();
 
-    const colors = row.colors && row.colors.length > 0 ? row.colors : (row.color ? [row.color] : []);
+    const colorOn = References.settings.color_enabled;
+    const sizeOn = References.settings.size_enabled;
+    const colors = colorOn && row.colors && row.colors.length > 0 ? row.colors : [row.color || ''];
+    const sizes = sizeOn ? References.splitSizes(row.size) : [];
+    const sizeList = sizes.length > 0 ? sizes : [row.size || ''];
+    const combos = [];
+    colors.forEach(c => sizeList.forEach(s => combos.push({ color: c, size: s })));
 
-    if (colors.length > 1) {
-      // 1st color stays on rowIdx
-      row.color = colors[0];
-      row.colors = [colors[0]];
+    if (combos.length > 1) {
+      if (!row.model_key) row.model_key = this.newModelKey();
+      // 1-variant shu qatorda qoladi
+      row.color = combos[0].color;
+      row.colors = combos[0].color ? [combos[0].color] : [];
+      row.size = combos[0].size;
 
-      // Create new clone rows for remaining colors with IDENTICAL model_code and factory_code
-      for (let i = 1; i < colors.length; i++) {
-        const cColor = colors[i];
+      // Qolgan rang/razmer variantlari — alohida qatorlar, lekin BITTA model (bir xil model_key → bir xil model raqami)
+      for (let i = 1; i < combos.length; i++) {
         const clone = JSON.parse(JSON.stringify(row));
-        clone.color = cColor;
-        clone.colors = [cColor];
-        clone.factory_code = row.factory_code;
-        clone.model_code = row.model_code; // UNCHANGED MODEL CODE!
+        clone.color = combos[i].color;
+        clone.colors = combos[i].color ? [combos[i].color] : [];
+        clone.size = combos[i].size;
+        clone.model_key = row.model_key;
         clone.code = "";
         clone.articul = "";
         clone.custom_articul = false;
@@ -1477,7 +1567,7 @@ const Grid = {
       this.render();
 
       if (typeof showToast === 'function') {
-        showToast(`⚡ Model bo'yicha ${colors.length} ta rang qatori yaratildi!`, "success");
+        showToast(`⚡ Bitta model bo'yicha ${combos.length} ta variant qatori yaratildi (rang × razmer)!`, "success");
       }
 
       // Focus on the COUNTRY (Страна) field of the next new empty row!

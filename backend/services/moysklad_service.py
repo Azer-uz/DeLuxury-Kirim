@@ -1,11 +1,36 @@
-import httpx
+import json
 import logging
-from typing import Dict, Any, List, Optional
+import re
+import time
+from datetime import datetime, timedelta
+from typing import Dict, Any, List, Optional, Tuple
 from backend.config import get_settings
+from backend.services.gateway_core import gateway
 
 logger = logging.getLogger(__name__)
 
+# Artikuldagi model raqami: "A26TOP00724", "A26TOP00724BLK", "A26TOP00724BLK-XL" -> 724
+MODEL_NUMBER_RE = re.compile(r"^[A-Z0-9]*?[A-Z](\d{5})(?!\d)")
+BULK_CHUNK = 50
+
+class MoySkladError(Exception):
+    pass
+
+def _error_text(res: Dict[str, Any]) -> str:
+    """Gateway xato javobidan MoySklad'ning o'qiladigan xabarini ajratadi"""
+    detail = res.get("detail") or ""
+    try:
+        parsed = json.loads(detail)
+        errors = parsed.get("errors") if isinstance(parsed, dict) else None
+        if errors:
+            return "; ".join(e.get("error", "") for e in errors if e.get("error"))
+    except (ValueError, TypeError):
+        pass
+    return str(detail)[:300] or "Noma'lum xatolik"
+
 class MoySkladService:
+    """MoySklad bilan barcha ishlar — faqat Gateway (rate-limit, retry) orqali"""
+
     def __init__(self):
         self.settings = get_settings()
         self.base_url = self.settings.moysklad_api_url.rstrip("/")
@@ -13,520 +38,363 @@ class MoySkladService:
         self._price_type_meta: Optional[Dict[str, Any]] = None
         self._attrs_metadata: Optional[List[Dict[str, Any]]] = None
         self._ce_cache: Dict[str, Dict[str, Any]] = {}
-        self._country_cache: Dict[str, Dict[str, Any]] = {}
+        self._country_cache: Dict[str, Optional[Dict[str, Any]]] = {}
+        self._folder_cache: Dict[str, Dict[str, Any]] = {}
+        self._currency_cache: Dict[str, Dict[str, Any]] = {}
+        self._products_scan: Tuple[float, List[Dict[str, Any]]] = (0.0, [])
 
     def _headers(self) -> Dict[str, str]:
-        return {
-            "Authorization": f"Bearer {self.token}",
-            "Content-Type": "application/json",
-            "Accept-Encoding": "gzip",
-            "Lognex-Pretty-Print": "true"
-        }
+        return gateway._headers()
 
-    async def get_max_product_code(self) -> int:
-        """Get the highest numeric product code currently in MoySklad."""
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            try:
-                resp = await client.get(
-                    f"{self.base_url}/entity/product?order=code,desc&limit=10",
-                    headers=self._headers()
-                )
-                if resp.status_code == 200:
-                    for p in resp.json().get("rows", []):
-                        c = p.get("code")
-                        if c and str(c).isdigit():
-                            return int(c)
-            except Exception as e:
-                logger.warning(f"Error getting max product code: {e}")
-        return 658
+    def meta(self, entity: str, entity_id: str) -> Dict[str, Any]:
+        return {"href": f"{self.base_url}/entity/{entity}/{entity_id}", "type": entity, "mediaType": "application/json"}
 
-    async def get_default_price_type_meta(self, client: httpx.AsyncClient) -> Optional[Dict[str, Any]]:
-        if self._price_type_meta:
-            return self._price_type_meta
-        try:
-            resp = await client.get(f"{self.base_url}/context/companysettings/pricetype", headers=self._headers())
-            if resp.status_code == 200:
-                pts = resp.json()
-                if pts:
-                    for pt in pts:
-                        if pt.get("name") == "Цена продажи":
-                            self._price_type_meta = pt.get("meta")
-                            return self._price_type_meta
-                    self._price_type_meta = pts[0].get("meta")
-                    return self._price_type_meta
-        except Exception as e:
-            logger.warning(f"Error fetching price types: {e}")
-        return None
+    async def _call(self, method: str, endpoint: str, params: Optional[Dict[str, Any]] = None, json_data: Any = None) -> Any:
+        res = await gateway.execute_request(method, endpoint, params=params, json_data=json_data)
+        if isinstance(res, dict) and res.get("error"):
+            raise MoySkladError(_error_text(res))
+        return res
 
-    async def get_product_attributes_metadata(self, client: httpx.AsyncClient) -> List[Dict[str, Any]]:
-        if self._attrs_metadata:
-            return self._attrs_metadata
-        try:
-            resp = await client.get(f"{self.base_url}/entity/product/metadata/attributes", headers=self._headers())
-            if resp.status_code == 200:
-                self._attrs_metadata = resp.json().get("rows", [])
-                return self._attrs_metadata
-        except Exception as e:
-            logger.warning(f"Error fetching product attributes metadata: {e}")
-        return []
+    async def _fetch_all(self, endpoint: str, params: Optional[Dict[str, Any]] = None, page: int = 1000) -> List[Dict[str, Any]]:
+        rows: List[Dict[str, Any]] = []
+        offset = 0
+        while True:
+            data = await self._call("GET", endpoint, params={**(params or {}), "limit": page, "offset": offset})
+            batch = data.get("rows", []) if isinstance(data, dict) else []
+            rows.extend(batch)
+            size = data.get("meta", {}).get("size", 0) if isinstance(data, dict) else 0
+            offset += page
+            if not batch or offset >= size:
+                return rows
 
-    async def resolve_custom_entity_value(self, client: httpx.AsyncClient, dict_id: str, value_name: str) -> Optional[Dict[str, Any]]:
-        if not value_name or not str(value_name).strip():
-            return None
-        clean_val = str(value_name).strip()
-        cache_key = f"{dict_id}:{clean_val.lower()}"
-        if cache_key in self._ce_cache:
-            return self._ce_cache[cache_key]
-        try:
-            search_url = f"{self.base_url}/entity/customentity/{dict_id}?search={clean_val}"
-            r = await client.get(search_url, headers=self._headers())
-            if r.status_code == 200:
-                for row in r.json().get("rows", []):
-                    if row.get("name", "").strip().lower() == clean_val.lower():
-                        meta = row.get("meta")
-                        self._ce_cache[cache_key] = meta
-                        return meta
-            post_r = await client.post(
-                f"{self.base_url}/entity/customentity/{dict_id}",
-                headers=self._headers(),
-                json={"name": clean_val}
-            )
-            if post_r.status_code in [200, 201]:
-                meta = post_r.json().get("meta")
-                self._ce_cache[cache_key] = meta
-                return meta
-        except Exception as e:
-            logger.warning(f"Error resolving custom entity '{clean_val}' in {dict_id}: {e}")
-        return None
-
-    async def resolve_country_meta(self, client: httpx.AsyncClient, country_name: str) -> Optional[Dict[str, Any]]:
-        if not country_name or not str(country_name).strip():
-            return None
-        clean_name = str(country_name).strip()
-        cache_key = clean_name.lower()
-        if cache_key in self._country_cache:
-            return self._country_cache[cache_key]
-        try:
-            r = await client.get(f"{self.base_url}/entity/country?search={clean_name}", headers=self._headers())
-            if r.status_code == 200:
-                for c in r.json().get("rows", []):
-                    if c.get("name", "").strip().lower() == clean_name.lower():
-                        meta = c.get("meta")
-                        self._country_cache[cache_key] = meta
-                        return meta
-        except Exception as e:
-            logger.warning(f"Error resolving country {country_name}: {e}")
-        return None
-
-    async def find_or_create_product(self, item_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Find product by article/code or create new product in MoySklad with full attributes & priceType.
-        """
-        articul = (item_data.get("articul") or "").strip()
-        name = (item_data.get("full_name") or item_data.get("name") or articul).strip()
-        price_buy = float(item_data.get("price_buy", 0.0))
-        price_sale = float(item_data.get("price_sale", 0.0))
-        description = item_data.get("description", "")
-        category_name = item_data.get("category", "")
-        brand_name = item_data.get("brand", "")
-
-        async with httpx.AsyncClient(timeout=25.0) as client:
-            # 1. Search by article / code
-            if articul:
-                search_url = f"{self.base_url}/entity/product?filter=article={articul}"
-                resp = await client.get(search_url, headers=self._headers())
-                if resp.status_code == 200:
-                    rows = resp.json().get("rows", [])
-                    if rows:
-                        return {"status": "found", "product": rows[0]}
-
-            # 2. Search by exact name
-            if name:
-                search_name_url = f"{self.base_url}/entity/product?filter=name={name}"
-                resp2 = await client.get(search_name_url, headers=self._headers())
-                if resp2.status_code == 200:
-                    rows2 = resp2.json().get("rows", [])
-                    if rows2:
-                        return {"status": "found", "product": rows2[0]}
-
-            # 3. Create new product
-            folder_obj = None
-            group_name = (item_data.get("group_name") or "").strip()
-            folder_target = group_name or category_name
-            if folder_target:
-                folder_obj = await self.find_or_create_product_folder(folder_target)
-
-            # Code resolution: exactly 5 digits matching articul suffix (e.g. 00659)
-            code_val = (item_data.get("code") or "").strip()
-            if not code_val and articul and len(articul) >= 5 and articul[-5:].isdigit():
-                code_val = articul[-5:]
-            elif not code_val:
-                code_val = articul
-
-            # PriceType resolution
-            pt_meta = await self.get_default_price_type_meta(client)
-            sale_prices = []
-            if pt_meta:
-                sale_prices.append({
-                    "value": int(price_sale * 100),
-                    "priceType": {"meta": pt_meta}
-                })
-            else:
-                sale_prices.append({
-                    "value": int(price_sale * 100)
-                })
-
-            # Custom Attributes resolution
-            attrs_metadata = await self.get_product_attributes_metadata(client)
-            attr_map = {a.get("name"): a for a in attrs_metadata if a.get("name")}
-
-            attr_values_to_set = [
-                ("Категория", item_data.get("category")),
-                ("Вид товара", item_data.get("product_type")),
-                ("Коллекция", item_data.get("collection") or "AW26"),
-                ("Сезон", item_data.get("season") or "Весна-Осень"),
-                ("Бренд", item_data.get("brand") or "De Luxury"),
-                ("Модель", item_data.get("calculated_model") or item_data.get("model_code")),
-                ("Код модели", item_data.get("factory_code") or item_data.get("model_code")),
-                ("Размер", item_data.get("size")),
-                ("Цвет", item_data.get("color"))
-            ]
-
-            attributes_payload = []
-            for attr_name, val_str in attr_values_to_set:
-                if not val_str:
-                    continue
-                meta_info = attr_map.get(attr_name)
-                if not meta_info:
-                    continue
-                attr_type = meta_info.get("type", "").lower()
-                if attr_type in ["string", "text", "link"]:
-                    attributes_payload.append({
-                        "meta": meta_info.get("meta"),
-                        "value": str(val_str)
-                    })
-                elif attr_type == "customentity":
-                    custom_href = meta_info.get("customEntityMeta", {}).get("href", "")
-                    if custom_href:
-                        dict_id = custom_href.split("/")[-1]
-                        elem_meta = await self.resolve_custom_entity_value(client, dict_id, str(val_str))
-                        if elem_meta:
-                            attributes_payload.append({
-                                "meta": meta_info.get("meta"),
-                                "value": {"meta": elem_meta}
-                            })
-                else:
-                    # Fallback for generic types
-                    custom_href = meta_info.get("customEntityMeta", {}).get("href", "")
-                    if custom_href:
-                        dict_id = custom_href.split("/")[-1]
-                        elem_meta = await self.resolve_custom_entity_value(client, dict_id, str(val_str))
-                        if elem_meta:
-                            attributes_payload.append({
-                                "meta": meta_info.get("meta"),
-                                "value": {"meta": elem_meta}
-                            })
-                    else:
-                        attributes_payload.append({
-                            "meta": meta_info.get("meta"),
-                            "value": str(val_str)
-                        })
-
-            payload: Dict[str, Any] = {
-                "name": name,
-                "article": articul,
-                "code": code_val,
-                "description": f"{description} | Brand: {brand_name}".strip(" |"),
-                "buyPrice": {
-                    "value": int(price_buy * 100)
-                },
-                "salePrices": sale_prices,
-                "attributes": attributes_payload
-            }
-
-            # Country
-            country_name = item_data.get("country")
-            if country_name:
-                c_meta = await self.resolve_country_meta(client, country_name)
-                if c_meta:
-                    payload["country"] = {"meta": c_meta}
-
-            if folder_obj and "meta" in folder_obj:
-                payload["productFolder"] = {"meta": folder_obj["meta"]}
-
-            create_resp = await client.post(
-                f"{self.base_url}/entity/product",
-                headers=self._headers(),
-                json=payload
-            )
-
-            if create_resp.status_code in [200, 201]:
-                return {"status": "created", "product": create_resp.json()}
-            else:
-                error_msg = f"Mahsulot yaratishda xatolik ({create_resp.status_code}): {create_resp.text}"
-                logger.error(error_msg)
-                return {"status": "error", "message": error_msg}
-
+    # ================= ULANISH VA SPRAVOCHNIKLAR =================
     async def test_connection(self) -> Dict[str, Any]:
-        """Verify API token and get organization account details."""
         if not self.token:
             return {"status": "error", "message": "MoySklad API token kiritilmagan (.env faylida MOYSKLAD_TOKEN yo'q)"}
+        try:
+            data = await self._call("GET", "entity/organization")
+            orgs = data.get("rows", [])
+            org_name = orgs[0].get("name", "Noma'lum") if orgs else "Tashkilot topilmadi"
+            return {"status": "connected", "organization_name": org_name, "organizations": orgs,
+                    "message": f"Ulanish muvaffaqiyatli: {org_name}"}
+        except MoySkladError as e:
+            return {"status": "error", "message": f"MoySklad API xatosi: {e}"}
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            try:
-                resp = await client.get(f"{self.base_url}/entity/organization", headers=self._headers())
-                if resp.status_code == 200:
-                    data = resp.json()
-                    orgs = data.get("rows", [])
-                    org_name = orgs[0].get("name", "Noma'lum") if orgs else "Tashkilot topilmadi"
-                    return {
-                        "status": "connected",
-                        "organization_name": org_name,
-                        "organizations": orgs,
-                        "message": f"Ulanish muvaffaqiyatli: {org_name}"
-                    }
-                else:
-                    return {
-                        "status": "error",
-                        "status_code": resp.status_code,
-                        "message": f"MoySklad API xatosi ({resp.status_code}): {resp.text}"
-                    }
-            except Exception as e:
-                logger.exception("MoySklad connection test failed")
-                return {"status": "error", "message": f"Ulanishda xatolik: {str(e)}"}
+    async def _safe_list(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        try:
+            return await self._fetch_all(endpoint, params)
+        except MoySkladError as e:
+            logger.error(f"Error fetching {endpoint}: {e}")
+            return []
 
     async def get_stores(self) -> List[Dict[str, Any]]:
-        """Get list of warehouses/stores (omborlar)."""
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            try:
-                resp = await client.get(f"{self.base_url}/entity/store?limit=100", headers=self._headers())
-                if resp.status_code == 200:
-                    return resp.json().get("rows", [])
-                return []
-            except Exception as e:
-                logger.error(f"Error fetching stores: {e}")
-                return []
+        return await self._safe_list("entity/store")
 
     async def get_counterparties(self) -> List[Dict[str, Any]]:
-        """Get list of suppliers/counterparties (kontragentlar / yetkazib beruvchilar)."""
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            try:
-                resp = await client.get(f"{self.base_url}/entity/counterparty?limit=100", headers=self._headers())
-                if resp.status_code == 200:
-                    return resp.json().get("rows", [])
-                return []
-            except Exception as e:
-                logger.error(f"Error fetching counterparties: {e}")
-                return []
+        return await self._safe_list("entity/counterparty")
+
+    async def get_organizations(self) -> List[Dict[str, Any]]:
+        return await self._safe_list("entity/organization")
+
+    async def get_product_folders(self) -> List[Dict[str, Any]]:
+        return await self._safe_list("entity/productfolder")
 
     async def create_counterparty(self, name: str, phone: Optional[str] = None, description: Optional[str] = None, tag: Optional[str] = None) -> Dict[str, Any]:
-        """Create a new counterparty in MoySklad."""
-        payload = {"name": name.strip()}
+        payload: Dict[str, Any] = {"name": name.strip()}
         if phone:
             payload["phone"] = phone.strip()
         if description:
             payload["description"] = description.strip()
         if tag:
             payload["tags"] = [tag.strip()]
-
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            try:
-                resp = await client.post(f"{self.base_url}/entity/counterparty", headers=self._headers(), json=payload)
-                if resp.status_code in (200, 201):
-                    return {"status": "created", "counterparty": resp.json()}
-                else:
-                    return {"status": "error", "message": f"MoySklad xatosi: {resp.text}"}
-            except Exception as e:
-                logger.error(f"Error creating counterparty: {e}")
-                return {"status": "error", "message": str(e)}
+        try:
+            return {"status": "created", "counterparty": await self._call("POST", "entity/counterparty", json_data=payload)}
+        except MoySkladError as e:
+            return {"status": "error", "message": f"MoySklad xatosi: {e}"}
 
     async def get_next_supply_number(self) -> str:
-        """Find the latest Supply (Приемка) document number and calculate the next 5-digit number (e.g. 00035)."""
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            try:
-                resp = await client.get(f"{self.base_url}/entity/supply?order=moment,desc&limit=30", headers=self._headers())
-                if resp.status_code == 200:
-                    rows = resp.json().get("rows", [])
-                    highest = 0
-                    for r in rows:
-                        name = (r.get("name") or "").strip()
-                        # Extract digits
-                        digits_only = "".join(ch for ch in name if ch.isdigit())
-                        if digits_only:
-                            try:
-                                val = int(digits_only)
-                                if val > highest:
-                                    highest = val
-                            except ValueError:
-                                pass
-                    if highest > 0:
-                        return f"{highest + 1:05d}"
-            except Exception as e:
-                logger.error(f"Error determining next supply number: {e}")
-        return "00035"
+        """Oxirgi Приемка raqamidan keyingi 5 xonali raqam (masalan 00042)"""
+        try:
+            data = await self._call("GET", "entity/supply", params={"order": "moment,desc", "limit": 30})
+            highest = 0
+            for r in data.get("rows", []):
+                digits = "".join(ch for ch in (r.get("name") or "") if ch.isdigit())
+                if digits:
+                    highest = max(highest, int(digits))
+            if highest > 0:
+                return f"{highest + 1:05d}"
+        except MoySkladError as e:
+            logger.error(f"Error determining next supply number: {e}")
+        return "00001"
 
-    async def get_organizations(self) -> List[Dict[str, Any]]:
-        """Get list of organizations (yuridik shaxslar)."""
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            try:
-                resp = await client.get(f"{self.base_url}/entity/organization?limit=100", headers=self._headers())
-                if resp.status_code == 200:
-                    return resp.json().get("rows", [])
-                return []
-            except Exception as e:
-                logger.error(f"Error fetching organizations: {e}")
-                return []
+    async def supply_exists(self, name: str) -> bool:
+        data = await self._call("GET", "entity/supply", params={"filter": f"name={name}", "limit": 1})
+        return bool(data.get("rows"))
 
-    async def get_product_folders(self) -> List[Dict[str, Any]]:
-        """Get product groups/folders (Группы товаров / Категории)."""
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            try:
-                resp = await client.get(f"{self.base_url}/entity/productfolder?limit=100", headers=self._headers())
-                if resp.status_code == 200:
-                    return resp.json().get("rows", [])
-                return []
-            except Exception as e:
-                logger.error(f"Error fetching product folders: {e}")
-                return []
+    async def get_currency(self, iso_code: str) -> Optional[Dict[str, Any]]:
+        if iso_code not in self._currency_cache:
+            for cur in await self._safe_list("entity/currency"):
+                self._currency_cache[cur.get("isoCode", "")] = cur
+        return self._currency_cache.get(iso_code)
+
+    # ================= MODEL RAQAMI (MoySklad bilan sinxron) =================
+    async def get_all_products(self, max_age: int = 60) -> List[Dict[str, Any]]:
+        ts, rows = self._products_scan
+        if rows and time.time() - ts < max_age:
+            return rows
+        rows = await self._fetch_all("entity/product")
+        self._products_scan = (time.time(), rows)
+        return rows
+
+    async def get_max_model_number(self) -> int:
+        """MoySklad'dagi artikullardan eng katta model raqami (A26TOP00724BLK -> 724)"""
+        highest = 0
+        for p in await self.get_all_products():
+            m = MODEL_NUMBER_RE.match((p.get("article") or "").strip().upper())
+            if m:
+                highest = max(highest, int(m.group(1)))
+        return highest
+
+    # ================= MAHSULOTLARNI TOPISH / YARATISH =================
+    async def _price_type(self) -> Optional[Dict[str, Any]]:
+        if self._price_type_meta:
+            return self._price_type_meta
+        pts = await self._call("GET", "context/companysettings/pricetype")
+        if pts:
+            chosen = next((pt for pt in pts if pt.get("name") == "Цена продажи"), pts[0])
+            self._price_type_meta = chosen.get("meta")
+        return self._price_type_meta
+
+    async def _attributes_map(self) -> Dict[str, Dict[str, Any]]:
+        if self._attrs_metadata is None:
+            data = await self._call("GET", "entity/product/metadata/attributes")
+            self._attrs_metadata = data.get("rows", [])
+        return {a.get("name"): a for a in self._attrs_metadata if a.get("name")}
+
+    async def _custom_entity_value(self, dict_id: str, value: str) -> Optional[Dict[str, Any]]:
+        clean = str(value).strip()
+        if not clean:
+            return None
+        key = f"{dict_id}:{clean.lower()}"
+        if key in self._ce_cache:
+            return self._ce_cache[key]
+        data = await self._call("GET", f"entity/customentity/{dict_id}", params={"search": clean, "limit": 100})
+        for row in data.get("rows", []):
+            if (row.get("name") or "").strip().lower() == clean.lower():
+                self._ce_cache[key] = row.get("meta")
+                return self._ce_cache[key]
+        created = await self._call("POST", f"entity/customentity/{dict_id}", json_data={"name": clean})
+        self._ce_cache[key] = created.get("meta")
+        return self._ce_cache[key]
+
+    async def _country_meta(self, name: str) -> Optional[Dict[str, Any]]:
+        clean = (name or "").strip()
+        if not clean:
+            return None
+        if clean.lower() not in self._country_cache:
+            data = await self._call("GET", "entity/country", params={"search": clean, "limit": 100})
+            self._country_cache[clean.lower()] = next(
+                (c.get("meta") for c in data.get("rows", []) if (c.get("name") or "").strip().lower() == clean.lower()),
+                None
+            )
+        return self._country_cache[clean.lower()]
 
     async def find_or_create_product_folder(self, folder_name: str) -> Optional[Dict[str, Any]]:
-        """Find product folder by name or create if missing."""
         if not folder_name:
             return None
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            try:
-                # Search existing
-                resp = await client.get(
-                    f"{self.base_url}/entity/productfolder?filter=name={folder_name}",
-                    headers=self._headers()
-                )
-                if resp.status_code == 200:
-                    rows = resp.json().get("rows", [])
-                    if rows:
-                        return rows[0]
-                
-                # Create new folder
-                create_resp = await client.post(
-                    f"{self.base_url}/entity/productfolder",
-                    headers=self._headers(),
-                    json={"name": folder_name}
-                )
-                if create_resp.status_code in [200, 201]:
-                    return create_resp.json()
-            except Exception as e:
-                logger.error(f"Error finding/creating product folder {folder_name}: {e}")
-        return None
+        if folder_name in self._folder_cache:
+            return self._folder_cache[folder_name]
+        data = await self._call("GET", "entity/productfolder", params={"filter": f"name={folder_name}"})
+        rows = data.get("rows", [])
+        folder = rows[0] if rows else await self._call("POST", "entity/productfolder", json_data={"name": folder_name})
+        self._folder_cache[folder_name] = folder
+        return folder
 
+    async def find_products_by_articles(self, articles: List[str]) -> Dict[str, Dict[str, Any]]:
+        """Artikul bo'yicha mavjud tovarlar (bir maydon bir necha marta = OR filtri)"""
+        found: Dict[str, Dict[str, Any]] = {}
+        unique = list(dict.fromkeys(a for a in articles if a))
+        for i in range(0, len(unique), BULK_CHUNK):
+            chunk = unique[i:i + BULK_CHUNK]
+            data = await self._call("GET", "entity/product", params={"filter": ";".join(f"article={a}" for a in chunk), "limit": 1000})
+            for p in data.get("rows", []):
+                found[(p.get("article") or "").strip()] = p
+        return found
+
+    async def build_product_payload(self, item: Dict[str, Any], buy_currency_meta: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        attr_map = await self._attributes_map()
+        attr_values = [
+            ("Категория", item.get("category")),
+            ("Вид товара", item.get("product_type")),
+            ("Коллекция", item.get("collection")),
+            ("Сезон", item.get("season")),
+            ("Бренд", item.get("brand")),
+            ("Модель", item.get("model_code")),
+            ("Код модели", item.get("factory_code")),
+            ("Размер", item.get("size")),
+            ("Цвет", item.get("color")),
+        ]
+        attributes = []
+        for attr_name, value in attr_values:
+            meta_info = attr_map.get(attr_name)
+            if not value or not meta_info:
+                continue
+            custom_href = meta_info.get("customEntityMeta", {}).get("href", "")
+            if custom_href:
+                elem_meta = await self._custom_entity_value(custom_href.split("/")[-1], value)
+                if elem_meta:
+                    attributes.append({"meta": meta_info.get("meta"), "value": {"meta": elem_meta}})
+            else:
+                attributes.append({"meta": meta_info.get("meta"), "value": str(value)})
+
+        buy_price: Dict[str, Any] = {"value": round(float(item["price_buy"]) * 100)}
+        if buy_currency_meta:
+            buy_price["currency"] = {"meta": buy_currency_meta}
+
+        sale_price: Dict[str, Any] = {"value": round(float(item["price_sale"]) * 100)}
+        pt_meta = await self._price_type()
+        if pt_meta:
+            sale_price["priceType"] = {"meta": pt_meta}
+
+        # "code" yuborilmaydi — tovar kodini MoySklad o'zi mustaqil yuritadi
+        payload: Dict[str, Any] = {
+            "name": item["full_name"],
+            "article": item["articul"],
+            "description": item.get("description") or "",
+            "buyPrice": buy_price,
+            "salePrices": [sale_price],
+            "attributes": attributes,
+        }
+        folder = await self.find_or_create_product_folder(item.get("group_name") or item.get("category") or "")
+        if folder and folder.get("meta"):
+            payload["productFolder"] = {"meta": folder["meta"]}
+        country_meta = await self._country_meta(item.get("country") or "")
+        if country_meta:
+            payload["country"] = {"meta": country_meta}
+        return payload
+
+    async def _assign_missing_codes(self, products: List[Dict[str, Any]]):
+        """Zaxira: MoySklad kodni avtomatik bermagan bo'lsa, eng katta raqamli koddan davom ettiramiz"""
+        missing = [p for p in products if not p.get("code")]
+        if not missing:
+            return
+        all_products = await self.get_all_products(max_age=0)
+        highest = max((int(c) for c in (p.get("code") or "" for p in all_products) if c.isdigit()), default=0)
+        for p in missing:
+            highest += 1
+            updated = await self._call("PUT", f"entity/product/{p['id']}", json_data={"code": f"{highest:05d}"})
+            p["code"] = updated.get("code")
+
+    async def ensure_products(self, items: List[Dict[str, Any]], buy_currency_meta: Optional[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+        """Har bir artikul uchun MoySklad tovari: mavjudini topadi (qayta yuborishda ham), yo'qlarini bulk yaratadi"""
+        existing = await self.find_products_by_articles([it["articul"] for it in items])
+        to_create = [it for it in items if it["articul"] not in existing]
+        created: List[Dict[str, Any]] = []
+
+        try:
+            for i in range(0, len(to_create), BULK_CHUNK):
+                chunk = to_create[i:i + BULK_CHUNK]
+                payloads = [await self.build_product_payload(it, buy_currency_meta) for it in chunk]
+                result = await self._call("POST", "entity/product", json_data=payloads)
+                results = result if isinstance(result, list) else [result]
+                errors = []
+                for it, res in zip(chunk, results):
+                    if isinstance(res, dict) and res.get("errors"):
+                        errors.append(f"{it['row_index']}-qator ({it['articul']}): " + "; ".join(e.get("error", "") for e in res["errors"]))
+                    elif isinstance(res, dict) and res.get("meta"):
+                        existing[it["articul"]] = res
+                        created.append(res)
+                if errors:
+                    raise MoySkladError("Tovar yaratilmadi — " + " | ".join(errors[:5]))
+        finally:
+            if created:
+                self._products_scan = (0.0, [])  # model raqami skaneri keyingi safar yangilansin
+
+        await self._assign_missing_codes(created)
+        return existing
+
+    # ================= PRIYOMKA (SUPPLY) =================
     async def create_supply_document(
         self,
         organization_id: Optional[str],
-        counterparty_id: Optional[str],
-        store_id: Optional[str],
+        counterparty_id: str,
+        store_id: str,
         items: List[Dict[str, Any]],
         doc_number: Optional[str] = None,
-        notes: Optional[str] = None
+        notes: Optional[str] = None,
+        doc_date: Optional[str] = None,
+        currency: str = "UZS",
+        rate: Optional[float] = None,
     ) -> Dict[str, Any]:
-        """
-        Create MoySklad Supply (Приемка / Приход) document with positions.
-        """
-        # Ensure default org, counterparty, store if not provided
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            # 1. Fetch organization meta if missing
-            org_meta = None
+        try:
             if organization_id:
-                org_meta = {"href": f"{self.base_url}/entity/organization/{organization_id}", "type": "organization"}
+                org_meta = self.meta("organization", organization_id)
             else:
                 orgs = await self.get_organizations()
-                if orgs:
-                    org_meta = orgs[0]["meta"]
-                else:
+                if not orgs:
                     return {"status": "error", "message": "MoySklad'da birorta ham Tashkilot (Юрлицо) topilmadi!"}
+                org_meta = orgs[0]["meta"]
 
-            # 2. Fetch counterparty meta if missing
-            agent_meta = None
-            if counterparty_id:
-                agent_meta = {"href": f"{self.base_url}/entity/counterparty/{counterparty_id}", "type": "counterparty"}
-            else:
-                counterparties = await self.get_counterparties()
-                if counterparties:
-                    agent_meta = counterparties[0]["meta"]
-                else:
-                    return {"status": "error", "message": "MoySklad'da yetkazib beruvchi (Kontragent) topilmadi!"}
+            if doc_number and await self.supply_exists(doc_number):
+                return {"status": "error", "message": f"MoySklad'da №{doc_number} raqamli Приемка allaqachon mavjud. Hujjat raqamini o'zgartiring."}
 
-            # 3. Fetch store meta if missing
-            store_meta = None
-            if store_id:
-                store_meta = {"href": f"{self.base_url}/entity/store/{store_id}", "type": "store"}
-            else:
-                stores = await self.get_stores()
-                if stores:
-                    store_meta = stores[0]["meta"]
-                else:
-                    return {"status": "error", "message": "MoySklad'da ombor (Склад) topilmadi!"}
+            currency_meta = None
+            if currency == "USD":
+                cur = await self.get_currency("USD")
+                if not cur:
+                    return {"status": "error", "message": "MoySklad'da USD valyutasi topilmadi (Справочники → Валюты)."}
+                currency_meta = cur["meta"]
 
-            # 4. Prepare positions
-            positions = []
-            created_products = []
+            products = await self.ensure_products(items, currency_meta)
 
-            for idx, item in enumerate(items, 1):
-                # Ensure product exists in MoySklad
-                prod_result = await self.find_or_create_product(item)
-                if prod_result.get("status") in ["found", "created"]:
-                    prod = prod_result["product"]
-                    created_products.append(prod)
-                    qty = float(item.get("quantity", 1.0))
-                    price = float(item.get("price_buy", 0.0))
-
-                    positions.append({
-                        "quantity": qty,
-                        "price": int(price * 100),  # in kopecks / tiyin
-                        "assortment": {
-                            "meta": prod["meta"]
-                        }
-                    })
-                else:
-                    return {
-                        "status": "error",
-                        "message": f"Qator #{idx} mahsuloti MoySklad'da yaratilmadi: {prod_result.get('message', 'Noma\'lum xatolik')}"
-                    }
-
-            if not positions:
-                return {"status": "error", "message": "Hujjatda birorta ham to'g'ri mahsulot qatori yo'q!"}
-
-            # 5. Build Supply payload
-            supply_payload: Dict[str, Any] = {
-                "organization": {"meta": org_meta},
-                "agent": {"meta": agent_meta},
-                "store": {"meta": store_meta},
-                "positions": positions,
-                "description": notes or "Kirim Web Ilova orqali avtomatik yaratildi (De Luxury)"
-            }
-
-            if doc_number:
-                supply_payload["name"] = str(doc_number)
-
-            supply_resp = await client.post(
-                f"{self.base_url}/entity/supply",
-                headers=self._headers(),
-                json=supply_payload
-            )
-
-            if supply_resp.status_code in [200, 201]:
-                data = supply_resp.json()
-                doc_name = data.get("name", "Приемка")
-                doc_id = data.get("id", "")
-                ui_url = f"https://online.moysklad.ru/app/#supply/edit?id={doc_id}"
-                
-                return {
-                    "status": "success",
-                    "document_id": doc_id,
-                    "document_name": doc_name,
-                    "moysklad_url": ui_url,
-                    "positions_count": len(positions),
-                    "total_sum": data.get("sum", 0) / 100.0,
-                    "raw_data": data
+            positions = [
+                {
+                    "quantity": float(it["quantity"]),
+                    "price": round(float(it["price_buy"]) * 100),  # hujjat valyutasida, tiyin/sentlarda
+                    "assortment": {"meta": products[it["articul"]]["meta"]},
                 }
-            else:
-                error_text = f"MoySklad Supply yaratishda xatolik ({supply_resp.status_code}): {supply_resp.text}"
-                logger.error(error_text)
-                return {"status": "error", "message": error_text}
+                for it in items
+            ]
+
+            payload: Dict[str, Any] = {
+                "organization": {"meta": org_meta},
+                "agent": {"meta": self.meta("counterparty", counterparty_id)},
+                "store": {"meta": self.meta("store", store_id)},
+                "positions": positions,
+                "description": notes or "Kirim Web Ilova orqali yaratildi",
+            }
+            if doc_number:
+                payload["name"] = str(doc_number)
+            moment = self._supply_moment(doc_date)
+            if moment:
+                payload["moment"] = moment
+            if currency_meta:
+                payload["rate"] = {"currency": {"meta": currency_meta}, "value": float(rate)}
+
+            data = await self._call("POST", "entity/supply", json_data=payload)
+            doc_id = data.get("id", "")
+            return {
+                "status": "success",
+                "document_id": doc_id,
+                "document_name": data.get("name", "Приемка"),
+                "moysklad_url": f"https://online.moysklad.ru/app/#supply/edit?id={doc_id}",
+                "positions_count": len(positions),
+                "total_sum": data.get("sum", 0) / 100.0,
+            }
+        except MoySkladError as e:
+            logger.error(f"Supply creation failed: {e}")
+            return {"status": "error", "message": str(e)}
+
+    @staticmethod
+    def _supply_moment(doc_date: Optional[str]) -> Optional[str]:
+        """Nakladnoy sanasi (YYYY-MM-DD). Bugungi yoki kelajak sana bo'lsa MoySklad joriy vaqtni qo'yadi"""
+        if not doc_date:
+            return None
+        try:
+            day = datetime.strptime(doc_date[:10], "%Y-%m-%d")
+        except ValueError:
+            return None
+        moscow_now = datetime.utcnow() + timedelta(hours=3)
+        if day.date() >= moscow_now.date():
+            return None
+        return day.strftime("%Y-%m-%d 10:00:00")

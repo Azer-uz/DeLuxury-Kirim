@@ -3,9 +3,9 @@ from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import Dict, Any, List
 from backend.database import get_db
-from backend.models import ProductType, Brand, Season, ArticulCounter
+from backend.models import ProductType, Brand, Season
 from backend.services.gemini_service import GeminiService
-from backend.services.articul_service import calculate_row_formulas
+from backend.services.articul_service import RefLookup, calculate_row_formulas
 
 router = APIRouter(prefix="/api/ai", tags=["AI Invoice OCR"])
 gemini_service = GeminiService()
@@ -24,7 +24,7 @@ async def scan_invoice(
         raise HTTPException(status_code=400, detail="Fayl bo'sh")
 
     # Gather reference context to help Gemini normalize product names
-    known_pts = [p.name for p in db.query(ProductType).limit(100).all()]
+    known_pts = [p.name for p in db.query(ProductType).order_by(ProductType.name).all()]
     known_brands = [b.name for b in db.query(Brand).limit(50).all()]
     known_seasons = [s.collection for s in db.query(Season).all()]
 
@@ -67,12 +67,10 @@ async def scan_invoice(
             "date": doc_date
         }
 
-    # Fetch counter preview
-    counter = db.query(ArticulCounter).filter(
-        ArticulCounter.group_code == "GLOBAL",
-        ArticulCounter.season_code == "GLOBAL"
-    ).first()
-    base_counter = counter.last_number if counter else 500
+    refs = RefLookup(db)
+    # Nakladnoyda kolleksiya bo'lmaydi — eng oxirgi qo'shilgan kolleksiya taklif qilinadi (jadvalda o'zgartirsa bo'ladi)
+    latest_season = db.query(Season).order_by(Season.id.desc()).first()
+    default_collection = latest_season.collection if latest_season else ""
 
     def safe_num(val, default=0.0):
         if val is None:
@@ -201,14 +199,14 @@ async def scan_invoice(
     for idx, r in enumerate(extracted_rows):
         raw_p_type = r.get("product_type", "")
         p_type, is_ambig, alt_type = normalize_product_type(raw_p_type)
-        coll = r.get("collection", "AW26")
-        brand = r.get("brand", "De Luxury")
+        coll = r.get("collection") or default_collection
+        brand = r.get("brand") or ""
         lifestyle = r.get("lifestyle", "")
         desc = r.get("description", "") or lifestyle
         color = r.get("color", "")
         articul_in_sheet = r.get("articul", "")
         factory_code = articul_in_sheet
-        size = r.get("size", "M")
+        size = r.get("size") or ""
         raw_qty = str(r.get("raw_quantity") or r.get("quantity") or "1")
         qty = safe_num(r.get("quantity"), 1.0)
         p_buy = safe_num(r.get("price_buy"), 0.0)
@@ -226,14 +224,12 @@ async def scan_invoice(
             model_code=factory_code,
             quantity=qty,
             price_buy=p_buy,
-            price_sale=p_sale
+            price_sale=p_sale,
+            refs=refs
         )
 
-        preview_num = base_counter + idx + 1
-        system_articul = f"{calc['season_code']}{calc['group_code']}{preview_num:05d}"
-
         enriched_rows.append({
-            "country": r.get("country", "Турция"),
+            "country": r.get("country") or "",
             "product_type": p_type,
             "category": calc["category"],
             "group_name": calc["group_name"],
@@ -250,8 +246,6 @@ async def scan_invoice(
             "raw_quantity": raw_qty,
             "price_buy": p_buy,
             "price_sale": p_sale,
-            "articul": system_articul,
-            "system_articul": system_articul,
             "full_name": calc["full_name"],
             "markup_pct": calc["markup_pct"],
             "sum_buy": calc["sum_buy"],

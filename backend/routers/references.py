@@ -1,6 +1,6 @@
 import csv
 import io
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from typing import Dict, Any, List
@@ -9,6 +9,7 @@ from backend.models import (
     ProductType, Category, Group, Season, Brand, Color, Country, SeasonType, SizeItem
 )
 from backend.services.moysklad_service import MoySkladService
+from backend.routers.auth import require_admin
 
 router = APIRouter(prefix="/api/references", tags=["References & Catalog"])
 moysklad_service = MoySkladService()
@@ -137,18 +138,17 @@ def delete_product_type(pt_id: int, db: Session = Depends(get_db)):
 # ================= EXCEL/CSV IMPORT & EXPORT FOR IERARXIYA =================
 @router.post("/import-hierarchy-csv")
 async def import_hierarchy_csv(
+    request: Request,
     file: UploadFile = File(...),
     mode: str = "merge",
     db: Session = Depends(get_db)
 ):
     """Import or bulk update Product types hierarchy from CSV/Excel. mode='merge' or 'replace'."""
+    if mode == "replace":
+        require_admin(request)
     contents = await file.read()
     if not contents:
         raise HTTPException(status_code=400, detail="Fayl bo'sh")
-
-    if mode == "replace":
-        db.query(ProductType).delete()
-        db.commit()
 
     rows_data = []
     is_xlsx = (file.filename and file.filename.endswith(".xlsx")) or contents[:4] == b"PK\x03\x04"
@@ -188,6 +188,13 @@ async def import_hierarchy_csv(
 
     groups_map = {g.name.strip().lower(): g for g in db.query(Group).all()}
     categories_map = {c.name.strip().lower(): c for c in db.query(Category).all()}
+
+    # "replace" — eski ierarxiya faqat fayl muvaffaqiyatli o'qilgandan keyin, bitta tranzaksiyada o'chiriladi
+    if mode == "replace":
+        if not any(len(r) > vid_idx and (r[vid_idx] or "").strip() for r in rows_data):
+            raise HTTPException(status_code=400, detail="Faylda birorta ham 'Вид товара' qatori topilmadi — ierarxiya o'zgartirilmadi.")
+        db.query(ProductType).delete()
+        db.flush()
 
     imported_count = 0
     updated_count = 0

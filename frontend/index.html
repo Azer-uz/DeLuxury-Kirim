@@ -553,13 +553,19 @@
                 </div>
               </div>
 
-              <!-- Valyuta -->
-              <div class="header-field-stacked">
+              <!-- Valyuta (faqat Sozlamalarda USD yoqilganda ko'rinadi) -->
+              <div class="header-field-stacked" id="header-currency-wrap" style="display: none;">
                 <label class="header-field-label">Valyuta</label>
                 <select class="form-control" id="header-currency" style="width: 105px; height: 32px; padding: 0.2rem 0.4rem; font-size: 0.78rem;">
                   <option value="UZS" selected>сум (UZS)</option>
                   <option value="USD">USD ($)</option>
                 </select>
+              </div>
+
+              <!-- USD kursi (tan narx $, sotuv narxi so'mda) -->
+              <div class="header-field-stacked" id="header-rate-wrap" style="display: none;">
+                <label class="header-field-label">Kurs (1$ = so'm)</label>
+                <input type="number" class="form-control" id="header-rate" min="0" step="1" placeholder="12000" style="width: 105px; height: 32px; padding: 0.2rem 0.4rem; font-size: 0.78rem;">
               </div>
 
               <!-- Tezkor Narx Multiplikatori (x1000) -->
@@ -620,7 +626,7 @@
                   <th style="min-width: 125px;" id="th-price-sale">Цена продажи *</th>
                   <th class="col-auto" style="min-width: 130px;" id="th-sum-buy">Сумма закупа</th>
                   <th class="col-auto" style="min-width: 130px;" id="th-sum-sale">Сумма продажи</th>
-                  <th style="min-width: 190px;">Цвет (Rang) 🎨</th>
+                  <th style="min-width: 190px;" id="th-color">Цвет (Rang) 🎨</th>
                   <th style="min-width: 85px; width: 85px; text-align: center;">Amal</th>
                 </tr>
               </thead>
@@ -777,13 +783,44 @@
 
           <!-- Articul Auto-increment Setting -->
           <div class="settings-card" style="background: var(--bg-card-subtle); padding: 1.5rem; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
-            <h4 style="margin-bottom: 1rem; color: #fbbf24;">🔢 Boshlang'ich Ketma-ketlik (Counter)</h4>
+            <h4 style="margin-bottom: 1rem; color: #fbbf24;">🔢 Model raqami (oxirgi ishlatilgan)</h4>
             <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1rem;">
-              Yangi tovarlar artikuli (masalan <code>A26TOP00501</code>) uchun 5 xonali raqam boshlanishi.
+              Model (masalan <code>A26TOP00724</code>) ning 5 xonali raqami. MoySklad artikullari bilan avtomatik sinxronlanadi —
+              qo'lda faqat oshirish kerak bo'lsa o'zgartiring. Tovar <b>kodini</b> MoySklad o'zi beradi.
             </p>
             <div style="display: flex; gap: 0.5rem;">
               <input type="number" class="form-control" id="settings-articul-counter" value="500" style="max-width: 140px; font-weight: 700;">
-              <button class="btn btn-secondary btn-sm" id="btn-save-counter">Saqlash</button>
+              <button class="btn btn-secondary btn-sm" id="btn-update-counter">Saqlash</button>
+            </div>
+          </div>
+
+          <!-- Kirim qoidalari (har bir do'kon uchun) -->
+          <div class="settings-card" style="background: var(--bg-card-subtle); padding: 1.5rem; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+            <h4 style="margin-bottom: 1rem; color: #a78bfa;">🧩 Kirim qoidalari (do'kon sozlamasi)</h4>
+            <div style="display: flex; flex-direction: column; gap: 0.6rem; font-size: 0.85rem;">
+              <label style="display: flex; gap: 0.5rem; align-items: center;">
+                <input type="checkbox" id="set-color-enabled"> Rang bo'yicha alohida tovar (artikulga rang kodi qo'shiladi)
+              </label>
+              <label style="display: flex; gap: 0.5rem; align-items: center;">
+                <input type="checkbox" id="set-size-enabled"> Razmer bo'yicha alohida tovar (S, M, L, XL ... )
+              </label>
+              <label style="display: flex; gap: 0.5rem; align-items: center;">
+                Razmer ajratgichi:
+                <input type="text" class="form-control" id="set-size-separator" maxlength="3" style="width: 60px; height: 28px;">
+              </label>
+              <label style="display: flex; gap: 0.5rem; align-items: center;">
+                <input type="checkbox" id="set-usd-enabled"> Dollarda (USD) kirim qilish imkoniyati
+              </label>
+              <div style="color: var(--text-muted);">
+                Artikul namunasi: <code id="set-articul-example">A26TOP00724</code>
+                <div style="font-size: 0.75rem;">Bir modelning rang/razmerlari bitta model raqamini oladi, har biri MoySklad'da alohida tovar.</div>
+              </div>
+              <label class="form-label" style="margin-top: 0.4rem;">Do'kon nomi</label>
+              <input type="text" class="form-control" id="set-company-name">
+              <label class="form-label">Kirish ruxsati (MoySklad loginlari, vergul bilan; bo'sh — barcha xodimlar)</label>
+              <input type="text" class="form-control" id="set-allowed-logins" placeholder="ombor@dokon, menejer@dokon">
+              <div id="set-admin-hint" style="display: none; font-size: 0.75rem; color: #fbbf24;">Sozlamalarni faqat administrator o'zgartira oladi.</div>
+              <button class="btn btn-gold btn-sm" id="btn-save-app-settings" style="align-self: flex-start;">Saqlash</button>
             </div>
           </div>
 
@@ -1050,13 +1087,14 @@
   <div class="toast-container" id="toast-container"></div>
 
   <!-- Scripts -->
+  <script src="js/auth.js?v=1.0"></script>
   <script src="js/dashboard.js"></script>
-  <script src="js/supplies.js?v=2.7"></script>
-  <script src="js/references.js?v=2.7"></script>
-  <script src="js/grid.js?v=2.8"></script>
+  <script src="js/supplies.js?v=2.8"></script>
+  <script src="js/references.js?v=2.8"></script>
+  <script src="js/grid.js?v=2.9"></script>
   <script src="js/ai-scanner.js?v=3.2"></script>
   <script src="js/history.js"></script>
-  <script src="js/app.js?v=2.8"></script>
+  <script src="js/app.js?v=2.9"></script>
 
 </body>
 </html>

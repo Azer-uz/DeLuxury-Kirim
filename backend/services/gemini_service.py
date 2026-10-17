@@ -9,13 +9,11 @@ from backend.config import get_settings
 
 logger = logging.getLogger(__name__)
 
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 GEMINI_MODELS = [
-    "gemini-3.5-flash",
-    "gemini-3.5-flash-lite",
     "gemini-3-flash-preview",
-    "gemini-3.6-flash",
-    "gemini-flash-latest",
-    "gemini-3.8-flash"
+    "gemini-3.8-flash",
+    "gemini-3.5-flash",
 ]
 
 class GeminiService:
@@ -25,17 +23,15 @@ class GeminiService:
 
     def normalize_image(self, image_bytes: bytes) -> bytes:
         """
-        Auto-correct image orientation via EXIF or rotate if table is oriented vertically.
+        EXIF bo'yicha to'g'rilaydi va JPEG ga o'tkazadi. Majburan burmaymiz: tik (portret) nakladnoylar ham bor,
+        burilgan rasmni esa Gemini o'zi o'qiydi (promptda aytilgan).
         """
         try:
             im = Image.open(io.BytesIO(image_bytes))
             im = ImageOps.exif_transpose(im)
-            
-            # If photographed vertically (height > width), a landscape A4 invoice sheet is sideways.
-            # Rotate 90 degrees clockwise (270 deg) to make it horizontal and legible.
-            if im.height > im.width:
-                im = im.rotate(270, expand=True)
-            
+            # Juda katta rasm so'rovni sekinlashtiradi — 2400 px gacha kichraytiramiz
+            im.thumbnail((2400, 2400))
+
             if im.mode in ("RGBA", "P"):
                 im = im.convert("RGB")
             
@@ -127,6 +123,12 @@ QOIDALAR:
 2. "Вид товар" maydoniga lotincha emas, faqat ruscha spravochnik nomini yozing.
 3. Faqat toza JSON formatida javob bering, hech qanday ortiqcha matn qo'shmang.
 """
+        known_types = (reference_context or {}).get("known_product_types") or []
+        if known_types:
+            prompt += (
+                "\n4. \"product_type\" qiymati IMKON QADAR quyidagi ierarxiya ro'yxatidagi nomlardan biri bo'lsin "
+                "(eng yaqin mosini tanlang):\n" + ", ".join(known_types) + "\n"
+            )
 
         payload = {
             "contents": [
@@ -143,21 +145,26 @@ QOIDALAR:
                 }
             ],
             "generationConfig": {
-                "temperature": 0.1
+                "temperature": 0.1,
+                "responseMimeType": "application/json"
             }
         }
 
-        # Multi-model fallback if any model experiences 503 high demand spike
+        # Model band bo'lsa (503) keyingisiga o'tamiz. Kalit URL'da emas, sarlavhada — loglarga tushmaydi
         async with httpx.AsyncClient(timeout=120.0) as client:
             for model_name in GEMINI_MODELS:
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={self.api_key}"
                 try:
-                    resp = await client.post(url, json=payload, headers={"Content-Type": "application/json"})
+                    resp = await client.post(
+                        GEMINI_URL.format(model=model_name),
+                        json=payload,
+                        headers={"Content-Type": "application/json", "x-goog-api-key": self.api_key},
+                    )
                     if resp.status_code == 200:
                         data = resp.json()
                         candidates = data.get("candidates", [])
                         if candidates:
-                            content_text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "").strip()
+                            parts = candidates[0].get("content", {}).get("parts", [])
+                            content_text = "".join(p.get("text", "") for p in parts if not p.get("thought")).strip()
                             if content_text.startswith("```"):
                                 lines = content_text.splitlines()
                                 if lines and lines[0].startswith("```"):

@@ -55,6 +55,12 @@ async def get_next_doc_number_endpoint():
     next_num = await ms_service.get_next_supply_number()
     return {"next_number": next_num}
 
+@router.get("/currency-rate")
+async def get_currency_rate(iso: str = "USD"):
+    """MoySklad'dagi valyuta kursi (Справочники → Валюты) — kirim sarlavhasida standart kurs sifatida"""
+    cur = await ms_service.get_currency(iso.upper())
+    return {"iso": iso.upper(), "rate": cur.get("rate") if cur else None}
+
 @router.get("/organizations")
 async def get_organizations():
     """Get list of legal entities/organizations from MoySklad."""

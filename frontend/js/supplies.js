@@ -747,6 +747,7 @@ const SuppliesList = {
       // Reset currency to UZS (default)
       const curSelect = document.getElementById('header-currency');
       if (curSelect) curSelect.value = 'UZS';
+      if (typeof syncCurrencyUI === 'function') syncCurrencyUI();
 
       // Reset grid to exactly 1 clean empty row on opening new receipt
       if (typeof Grid !== 'undefined') {
@@ -798,7 +799,10 @@ const SuppliesList = {
           if (cpEl) cpEl.value = data.header.counterparty_id;
         }
         const curEl = document.getElementById('header-currency');
-        if (curEl) curEl.value = data.header.currency || 'UZS';
+        if (curEl) curEl.value = (data.header.currency === 'USD' && References.settings.usd_enabled) ? 'USD' : 'UZS';
+        const rateEl = document.getElementById('header-rate');
+        if (rateEl && data.header.rate) rateEl.value = data.header.rate;
+        if (typeof syncCurrencyUI === 'function') syncCurrencyUI();
       }
 
       // Populate Grid rows

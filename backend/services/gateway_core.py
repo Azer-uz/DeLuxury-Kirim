@@ -19,7 +19,8 @@ class RateLimitGateway:
         self.settings = get_settings()
         self.token = self.settings.moysklad_token
         self.base_url = self.settings.moysklad_api_url.rstrip("/")
-        self.semaphore = asyncio.Semaphore(5)  # Max 5 parallel requests to MoySklad
+        # MoySklad: bitta token uchun 5 ta parallel so'rov. 4 — bot va boshqa xizmatlarga zaxira qoldiradi
+        self.semaphore = asyncio.Semaphore(4)
         self.rate_limit_remaining = 300
         self.retry_after = 0
         self.last_request_time = 0.0
@@ -58,19 +59,20 @@ class RateLimitGateway:
         method: str,
         endpoint: str,
         params: Optional[Dict[str, Any]] = None,
-        json_data: Optional[Dict[str, Any]] = None,
+        json_data: Optional[Any] = None,
         max_retries: int = 3,
         timeout: float = 35.0
     ) -> Any:
-        url = f"{self.base_url}/{endpoint.lstrip('/')}"
-        
+        # To'liq href (masalan hujjat pozitsiyalari meta.href) ham qabul qilinadi
+        url = endpoint if endpoint.startswith("http") else f"{self.base_url}/{endpoint.lstrip('/')}"
+
         async with self.semaphore:
             for attempt in range(1, max_retries + 1):
-                # Rate limit pacing: at least 50ms between requests
+                # MoySklad limiti 45 so'rov / 3 soniya — so'rovlar orasida kamida 70 ms
                 now = time.time()
                 elapsed = now - self.last_request_time
-                if elapsed < 0.05:
-                    await asyncio.sleep(0.05 - elapsed)
+                if elapsed < 0.07:
+                    await asyncio.sleep(0.07 - elapsed)
 
                 async with httpx.AsyncClient(timeout=timeout) as client:
                     try:

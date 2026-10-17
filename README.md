@@ -11,10 +11,38 @@ Kiyim-kechak chakana savdosi uchun **приход (товар qabul qilish)** ja
    - Dropdown avtoto'ldirish: *Вид товара*, *Бренд*, *Коллекция*, *Сезон*, *Размер*, *Цвет / Описание*, *Страна*.
    - **Avtomatik Formulalar (Real-Time):**
      - **Категория & Группа:** `Вид товара` tanlanganda avtomatik aniqlanadi (248+ mapping jadvali).
-     - **Артикул:** `Mavsum_kodi(Коллекция) + Guruh_kodi(Группы) + 5 xonali ketma-ket raqam` (masalan, `AW26` + `Одежда Топ` -> `A26TOP00501`).
+     - **Модель:** `Mavsum_kodi(Коллекция) + Guruh_kodi(Группы) + 5 xonali model raqami` (masalan, `AW26` + `Одежда Топ` -> `A26TOP00724`).
+     - **Артикул:** Модель + (sozlamaga qarab) rang kodi va/yoki razmer — pastdagi "Kirim qoidalari"ga qarang.
+     - **Код товара:** MoySklad o'zi mustaqil beradi (ilova yubormaydi).
      - **Наименование:** `TRIM(Вид_товара + " " + Описание + " " + Бренд + " " + Код_модели)`.
-     - **Надценка %:** `(Цена продажи / Цена закупа) - 1`.
+     - **Надценка %:** `(Цена продажи / Цена закупа) - 1` (USD kirimda tan narx kurs bilan so'mga keltiriladi).
      - **Сумма закупа & Сумма продажи.**
+
+### 🧩 Kirim qoidalari (har bir do'kon uchun Sozlamalar bo'limida)
+
+| Rang | Razmer | Artikul | Misol |
+|---|---|---|---|
+| o'chiq | o'chiq | Модель | `A26TOP00724` |
+| yoqiq | o'chiq | Модель + Rang kodi | `A26TOP00724BLK` |
+| o'chiq | yoqiq | Модель + `-` + Razmer | `A26TOP00724-XL` |
+| yoqiq | yoqiq | Модель + Rang + `-` + Razmer | `A26TOP00724BLK-XL` |
+
+- Bir modelning rang/razmer variantlari **bitta model raqamini** oladi, MoySklad'da har biri alohida tovar.
+  Jadvalda bir nechta rang tanlab yoki razmer katagiga `S, M, L` yozib **Ctrl+Enter** bosilsa — variant qatorlari yaratiladi.
+- Model raqami MoySklad'dagi artikullardan avtomatik sinxronlanadi va qoralamaga doimiy bog'lanadi:
+  xato bo'lib qayta yuborilsa ham artikullar o'zgarmaydi, tovarlar qayta yaratilmaydi.
+- **USD kirim** — sozlamadan yoqiladi (odatda o'chiq). Tan narx dollarda, sotuv narxi so'mda; Приемка MoySklad'da kurs bilan yaratiladi.
+
+### 🔐 Kirish
+- Foydalanuvchilar **MoySklad login/paroli** bilan kiradi. Xodimni admin MoySklad'da (Настройки → Сотрудники) yaratadi va parolini ham o'sha yerda o'zgartiradi.
+- MoySklad'dagi owner/admin roli — ilovada administrator (sozlamalar, model raqami). "Kirish ruxsati" ro'yxati bilan ilovaga kiradigan xodimlarni cheklash mumkin.
+- `/api/gateway/*` (bot uchun) — faqat localhost yoki `GATEWAY_TOKEN` bilan.
+
+### 🏪 Yangi do'konga o'rnatish
+1. `.env.example` → `.env`, MoySklad tokeni, `COMPANY_NAME` va Telegram sozlamalarini to'ldiring.
+2. Ilovani ishga tushiring, MoySklad admin login/paroli bilan kiring.
+3. **Sozlamalar → Kirim qoidalari**: rang/razmer/USD rejimini tanlang. **Manbalar**da ierarxiya, kolleksiya va rang kodlarini tekshiring.
+4. Tashqi kirish faqat HTTPS (nginx + SSL) orqali bo'lsin va `COOKIE_SECURE=true` qo'ying.
 
 2. **🤖 Google Gemini Flash AI (Накладная Fotosini O'qish):**
    - Yetkazib beruvchi hujjati (накладная, счет-фактура) rasmini yuklash yoki tashlash.

@@ -67,7 +67,7 @@ async def get_hourly_sales(target_date: Optional[str] = Query(None, description=
 
     start_msk = to_msk_filter_str(f"{date_str} 00:00:00")
     end_msk = to_msk_filter_str(f"{date_str} 23:59:59")
-    filter_str = f"moment>={start_msk};moment<={end_msk}"
+    filter_str = f"moment>={start_msk};moment<={end_msk};applicable=true"
 
     rd_task = gateway.execute_request("GET", "entity/retaildemand", params={"filter": filter_str, "limit": 1000})
     dem_task = gateway.execute_request("GET", "entity/demand", params={"filter": filter_str, "limit": 1000})
@@ -80,7 +80,8 @@ async def get_hourly_sales(target_date: Optional[str] = Query(None, description=
     if isinstance(dem_data, dict) and "rows" in dem_data:
         all_sales.extend(dem_data["rows"])
 
-    hourly_data = {hour: {"count": 0, "sum": 0.0} for hour in range(9, 24)}
+    # 0..23 — ish vaqtidan tashqaridagi savdo ham soatlar kesimida ko'rinsin (jami summaga teng bo'lsin)
+    hourly_data = {hour: {"count": 0, "sum": 0.0} for hour in range(24)}
     total_sum = 0.0
     total_count = len(all_sales)
 

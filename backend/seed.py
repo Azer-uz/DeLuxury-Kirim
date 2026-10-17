@@ -145,6 +145,6 @@ def seed_database(db: Session):
         ArticulCounter.season_code == "GLOBAL"
     ).first()
     if not global_counter:
-        db.add(ArticulCounter(group_code="GLOBAL", season_code="GLOBAL", last_number=500))
+        db.add(ArticulCounter(group_code="GLOBAL", season_code="GLOBAL", last_number=0))  # MoySklad artikullari bilan sinxronlanadi
 
     db.commit()
