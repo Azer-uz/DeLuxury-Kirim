@@ -353,19 +353,22 @@ function setupMainButtons() {
   // Update Articul Counter
   document.getElementById('btn-update-counter')?.addEventListener('click', async () => {
     const val = parseInt(document.getElementById('settings-articul-counter').value, 10);
-    if (isNaN(val)) return alert("Noto'g'ri raqam");
+    const codeVal = parseInt(document.getElementById('settings-code-counter')?.value, 10);
+    if (isNaN(val) || isNaN(codeVal)) return alert("Noto'g'ri raqam");
     try {
       const resp = await fetch('/api/articul/counter', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ last_number: val })
+        body: JSON.stringify({ last_number: val, last_code: codeVal })
       });
       const data = await resp.json();
       if (resp.ok) {
         Grid.baseCounter = data.last_number;
+        Grid.baseCode = data.last_code;
         Grid.recalculateAll();
         Grid.render();
-        showToast(`🔢 Model raqami ${data.last_number} ga o'rnatildi (keyingisi ${String(data.last_number + 1).padStart(5, '0')})`, 'success');
+        const pad = n => String(n + 1).padStart(5, '0');
+        showToast(`🔢 Keyingi model: ${pad(data.last_number)}, keyingi tovar kodi: ${pad(data.last_code)}`, 'success');
       } else {
         showToast(data.detail || "Xatolik yuz berdi", "error");
       }

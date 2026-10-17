@@ -2,39 +2,68 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import func
 from sqlalchemy.orm import Session
-from typing import Dict
+from typing import Any, Dict
 from backend.database import get_db
 from backend.models import ModelAllocation
 from backend.routers.auth import require_admin
-from backend.services.articul_service import get_counter, sync_counter
+from backend.services.articul_service import CODE_COUNTER, format_code, get_code_counter, get_counter, sync_counter
 from backend.services.moysklad_service import MoySkladService, MoySkladError
 
-router = APIRouter(prefix="/api/articul", tags=["Model raqami"])
+router = APIRouter(prefix="/api/articul", tags=["Model raqami va tovar kodi"])
 ms_service = MoySkladService()
 logger = logging.getLogger(__name__)
 
+CODE_KEY = "%:code:%"
+
 @router.get("/counter")
 async def get_counter_info(db: Session = Depends(get_db)):
-    """Oxirgi ishlatilgan model raqami (MoySklad artikullari bilan sinxron). Jadval oldindan ko'rish uchun"""
+    """Oxirgi model raqami va tovar kodi (MoySklad bilan sinxron) — jadvalda oldindan ko'rish uchun"""
+    duplicates = []
     try:
         last_num = sync_counter(db, await ms_service.get_max_model_number())
+        stats = await ms_service.get_code_stats()
+        last_code = sync_counter(db, stats["max"], CODE_COUNTER)
+        duplicates = stats["duplicates"]
         synced = True
     except MoySkladError as e:
-        logger.warning(f"Model counter sync failed: {e}")
+        logger.warning(f"Counter sync failed: {e}")
         last_num = get_counter(db).last_number
+        last_code = get_code_counter(db).last_number
         synced = False
-    return {"last_number": last_num, "next_preview": f"{last_num + 1:05d}", "synced": synced}
+    return {
+        "last_number": last_num,
+        "next_preview": f"{last_num + 1:05d}",
+        "last_code": last_code,
+        "next_code": format_code(last_code + 1),
+        "duplicate_codes": duplicates,
+        "synced": synced,
+    }
 
 @router.post("/counter")
-def update_counter(data: Dict[str, int], request: Request, db: Session = Depends(get_db)):
-    """Model raqamini qo'lda o'rnatish (faqat admin; MoySklad'dagi eng katta raqamdan kichik bo'lsa keyingi sinxronda ko'tariladi)"""
+def update_counter(data: Dict[str, Any], request: Request, db: Session = Depends(get_db)):
+    """Qo'lda o'rnatish (faqat admin).
+    Model raqami: yuborilmagan qoralamalarga ajratilganlardan pastga tushmaydi.
+    Tovar kodi: faqat OSHIRISH mumkin — berilgan kod hech qachon qayta berilmasligi uchun."""
     require_admin(request)
-    new_val = data.get("last_number")
-    if new_val is None or new_val < 0:
-        raise HTTPException(status_code=400, detail="Noto'g'ri raqam kiritildi")
-    # Yuborilmagan qoralamalarga ajratilgan raqamlardan pastga tushmaymiz (takror raqam bo'lmasin)
-    reserved = db.query(func.max(ModelAllocation.number)).scalar() or 0
-    counter = get_counter(db)
-    counter.last_number = max(int(new_val), reserved)
+    result: Dict[str, Any] = {"status": "success"}
+
+    if data.get("last_number") is not None:
+        new_val = int(data["last_number"])
+        if new_val < 0:
+            raise HTTPException(status_code=400, detail="Noto'g'ri raqam kiritildi")
+        reserved = db.query(func.max(ModelAllocation.number)).filter(~ModelAllocation.alloc_key.like(CODE_KEY)).scalar() or 0
+        counter = get_counter(db)
+        counter.last_number = max(new_val, reserved)
+        result["last_number"] = counter.last_number
+
+    if data.get("last_code") is not None:
+        counter = get_code_counter(db)
+        new_code = int(data["last_code"])
+        if new_code < counter.last_number:
+            raise HTTPException(status_code=400, detail=f"Tovar kodini kamaytirib bo'lmaydi (hozir {format_code(counter.last_number)}) — kodlar qaytarilmasligi kerak.")
+        counter.last_number = new_code
+        result["last_code"] = counter.last_number
+
     db.commit()
-    return {"status": "success", "last_number": counter.last_number}
+    result.setdefault("last_number", get_counter(db).last_number)
+    return result

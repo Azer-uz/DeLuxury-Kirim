@@ -783,15 +783,18 @@
 
           <!-- Articul Auto-increment Setting -->
           <div class="settings-card" style="background: var(--bg-card-subtle); padding: 1.5rem; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
-            <h4 style="margin-bottom: 1rem; color: #fbbf24;">🔢 Model raqami (oxirgi ishlatilgan)</h4>
+            <h4 style="margin-bottom: 1rem; color: #fbbf24;">🔢 Model raqami va tovar kodi (oxirgi berilgan)</h4>
             <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1rem;">
-              Model (masalan <code>A26TOP00724</code>) ning 5 xonali raqami. MoySklad artikullari bilan avtomatik sinxronlanadi —
-              qo'lda faqat oshirish kerak bo'lsa o'zgartiring. Tovar <b>kodini</b> MoySklad o'zi beradi.
+              Ikkalasi ham MoySklad bilan avtomatik sinxronlanadi (har yuborishda tekshiriladi) va faqat oshadi.
+              <b>Tovar kodi</b> — har bir tovarning unikal kaliti: ketma-ket beriladi, hech qachon qaytarilmaydi, kirim kod bo'yicha bog'lanadi.
             </p>
-            <div style="display: flex; gap: 0.5rem;">
-              <input type="number" class="form-control" id="settings-articul-counter" value="500" style="max-width: 140px; font-weight: 700;">
-              <button class="btn btn-secondary btn-sm" id="btn-update-counter">Saqlash</button>
+            <div style="display: grid; grid-template-columns: auto 140px; gap: 0.5rem; align-items: center; font-size: 0.82rem;">
+              <label for="settings-articul-counter">Model raqami</label>
+              <input type="number" class="form-control" id="settings-articul-counter" value="0" style="font-weight: 700;">
+              <label for="settings-code-counter">Tovar kodi</label>
+              <input type="number" class="form-control" id="settings-code-counter" value="0" style="font-weight: 700;" title="Faqat oshirish mumkin">
             </div>
+            <button class="btn btn-secondary btn-sm" id="btn-update-counter" style="margin-top: 0.6rem;">Saqlash</button>
           </div>
 
           <!-- Kirim qoidalari (har bir do'kon uchun) -->
@@ -1090,10 +1093,10 @@
   <script src="js/dashboard.js"></script>
   <script src="js/supplies.js?v=2.8"></script>
   <script src="js/references.js?v=2.9"></script>
-  <script src="js/grid.js?v=2.9"></script>
+  <script src="js/grid.js?v=3.0"></script>
   <script src="js/ai-scanner.js?v=3.2"></script>
   <script src="js/history.js"></script>
-  <script src="js/app.js?v=3.0"></script>
+  <script src="js/app.js?v=3.1"></script>
 
 </body>
 </html>

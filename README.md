@@ -13,7 +13,11 @@ Kiyim-kechak chakana savdosi uchun **приход (товар qabul qilish)** ja
      - **Категория & Группа:** `Вид товара` tanlanganda avtomatik aniqlanadi (248+ mapping jadvali).
      - **Модель:** `Mavsum_kodi(Коллекция) + Guruh_kodi(Группы) + 5 xonali model raqami` (masalan, `AW26` + `Одежда Топ` -> `A26TOP00724`).
      - **Артикул:** Модель + (sozlamaga qarab) rang kodi va/yoki razmer — pastdagi "Kirim qoidalari"ga qarang.
-     - **Код товара:** MoySklad o'zi mustaqil beradi (ilova yubormaydi).
+     - **Код товара:** har bir tovarning unikal kaliti (MoySklad importidagi kabi). Ilova beradi: MoySklad'dagi butun
+       assortimentning eng katta kodidan keyin **ketma-ket**, hisoblagich faqat oshadi — kod **hech qachon qaytarilmaydi**.
+       Kirim kod bo'yicha bog'lanadi. Kod MoySklad'da boshqa tovarda band bo'lsa yoki tovar boshqa kod bilan mavjud bo'lsa —
+       yuborish to'xtaydi, sabab ekranda va Telegram'da ko'rsatiladi. MoySklad'da takroriy kodlar paydo bo'lsa adminlarga ogohlantirish boradi.
+     - **Штрихкод:** MoySklad o'zi beradi (EAN13).
      - **Наименование:** `TRIM(Вид_товара + " " + Описание + " " + Бренд + " " + Код_модели)`.
      - **Надценка %:** `(Цена продажи / Цена закупа) - 1` (USD kirimda tan narx kurs bilan so'mga keltiriladi).
      - **Сумма закупа & Сумма продажи.**

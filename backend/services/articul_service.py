@@ -3,7 +3,9 @@
 Модель   = Mavsum_kodi(Коллекция) + Guruh_kodi(Вид товара → Группа) + 5 xonali model raqami
 Артикул  = Модель [+ Rang kodi]  (rang rejimi yoqilgan bo'lsa)
 Razmer   = artikulga kirmaydi: razmer rejimida har bir razmer bir xil artikulli ALOHIDA tovar
-Код, штрихкод = MoySklad o'zi beradi (ilova yubormaydi)
+Код      = har bir tovarning unikal kaliti (MoySklad importidagi kabi): ilova beradi — ketma-ket, MoySklad'dagi
+           eng katta koddan keyin, hech qachon qaytarilmaydi (hisoblagich faqat oshadi). Kirim kod bo'yicha bog'lanadi.
+Штрихкод = MoySklad o'zi beradi
 """
 from typing import Any, Dict, Iterable, List, Optional
 from sqlalchemy.orm import Session
@@ -69,42 +71,65 @@ def calc_money(qty: float, price_buy: float, price_sale: float, rate: float = 1.
     markup = round(((price_sale / buy_in_sale_currency) - 1) * 100, 2) if buy_in_sale_currency > 0 else 0.0
     return {"sum_buy": round(qty * price_buy, 2), "sum_sale": round(qty * price_sale, 2), "markup_pct": markup}
 
-# ================= MODEL RAQAMLARI =================
-def get_counter(db: Session) -> ArticulCounter:
+# ================= MODEL RAQAMLARI VA TOVAR KODLARI =================
+# Ikkala hisoblagich ham faqat oshadi: MoySklad'dagi eng katta qiymatdan orqada qolsa ko'tariladi, hech qachon tushmaydi —
+# MoySklad'da tovar o'chirilsa ham uning kodi/raqami qayta berilmaydi.
+MODEL_COUNTER = ("GLOBAL", "GLOBAL")
+CODE_COUNTER = ("CODE", "CODE")
+CODE_WIDTH = 5
+
+def _get_counter(db: Session, kind: tuple) -> ArticulCounter:
     counter = db.query(ArticulCounter).filter(
-        ArticulCounter.group_code == "GLOBAL",
-        ArticulCounter.season_code == "GLOBAL"
+        ArticulCounter.group_code == kind[0],
+        ArticulCounter.season_code == kind[1]
     ).first()
     if not counter:
-        counter = ArticulCounter(group_code="GLOBAL", season_code="GLOBAL", last_number=0)
+        counter = ArticulCounter(group_code=kind[0], season_code=kind[1], last_number=0)
         db.add(counter)
         db.flush()
     return counter
 
-def sync_counter(db: Session, moysklad_max: int) -> int:
-    """Hisoblagich MoySklad'dagi eng katta model raqamidan orqada qolmasin"""
-    counter = get_counter(db)
+def get_counter(db: Session) -> ArticulCounter:
+    return _get_counter(db, MODEL_COUNTER)
+
+def get_code_counter(db: Session) -> ArticulCounter:
+    return _get_counter(db, CODE_COUNTER)
+
+def sync_counter(db: Session, moysklad_max: int, kind: tuple = MODEL_COUNTER) -> int:
+    """Hisoblagich MoySklad'dagi eng katta qiymatdan orqada qolmasin"""
+    counter = _get_counter(db, kind)
     if moysklad_max > counter.last_number:
         counter.last_number = moysklad_max
     db.commit()
     return counter.last_number
 
-def allocate_model_numbers(db: Session, scope: str, model_keys: Iterable[str]) -> Dict[str, int]:
-    """Har bir model uchun doimiy raqam. Shu qoralama qayta yuborilsa — avvalgi raqamlar qaytariladi.
+def format_code(number: int) -> str:
+    return f"{number:0{CODE_WIDTH}d}"
+
+def _allocate(db: Session, kind: tuple, alloc_keys: Dict[str, str]) -> Dict[str, int]:
+    """alloc_keys: {natija kaliti: bazadagi doimiy kalit}. Bor bo'lsa avvalgi raqam, yo'q bo'lsa hisoblagich + 1.
     Chaqiruvchi bitta jarayonda ketma-ket chaqirishi kerak (documents.py dagi lock)."""
-    counter = get_counter(db)
+    counter = _get_counter(db, kind)
     result: Dict[str, int] = {}
-    for key in dict.fromkeys(model_keys):
-        alloc_key = f"{scope}:{key}"[:200]
-        existing = db.query(ModelAllocation).filter(ModelAllocation.alloc_key == alloc_key).first()
+    for key, alloc_key in alloc_keys.items():
+        existing = db.query(ModelAllocation).filter(ModelAllocation.alloc_key == alloc_key[:200]).first()
         if existing:
             result[key] = existing.number
             continue
         counter.last_number += 1
-        db.add(ModelAllocation(alloc_key=alloc_key, number=counter.last_number))
+        db.add(ModelAllocation(alloc_key=alloc_key[:200], number=counter.last_number))
         result[key] = counter.last_number
     db.commit()
     return result
+
+def allocate_model_numbers(db: Session, scope: str, model_keys: Iterable[str]) -> Dict[str, int]:
+    """Har bir model uchun doimiy raqam. Shu qoralama qayta yuborilsa — avvalgi raqamlar qaytariladi."""
+    return _allocate(db, MODEL_COUNTER, {k: f"{scope}:{k}" for k in dict.fromkeys(model_keys)})
+
+def allocate_codes(db: Session, scope: str, product_keys: Iterable[tuple]) -> Dict[tuple, str]:
+    """Har bir tovar (artikul, razmer) uchun doimiy unikal kod. Qayta yuborishda o'sha kod."""
+    keys = {k: f"{scope}:code:{k[0]}|{k[1]}" for k in dict.fromkeys(product_keys)}
+    return {k: format_code(n) for k, n in _allocate(db, CODE_COUNTER, keys).items()}
 
 # ================= OLDINDAN KO'RISH (AI skaner va /calculate-batch) =================
 def calculate_row_formulas(

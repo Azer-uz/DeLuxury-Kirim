@@ -1,5 +1,8 @@
 import asyncio
+import html
 import json
+import logging
+import time
 import datetime
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
@@ -8,13 +11,14 @@ from backend.database import get_db
 from backend.models import PrixodDocument, PrixodItem, DraftState, ModelAllocation
 from backend.services.app_settings import get_app_settings
 from backend.services.articul_service import (
-    RefLookup, allocate_model_numbers, build_articul, build_full_name, build_model_code,
-    calc_money, is_multi_size, normalize_size, product_key, sync_counter
+    CODE_COUNTER, RefLookup, allocate_codes, allocate_model_numbers, build_articul, build_full_name,
+    build_model_code, calc_money, is_multi_size, normalize_size, product_key, sync_counter
 )
 from backend.services.moysklad_service import MoySkladService, MoySkladError
 from backend.services.telegram_service import TelegramService
 
 router = APIRouter(prefix="/api/documents", tags=["Documents & Submission"])
+logger = logging.getLogger(__name__)
 ms_service = MoySkladService()
 tg_service = TelegramService()
 
@@ -293,8 +297,26 @@ def validate_rows(data: Dict[str, Any], db: Session = Depends(get_db)):
         "valid_rows": len(rows) - len(set(e["row"] for e in errors if e["row"]))
     }
 
-# Model raqamlarini ajratish bir vaqtda faqat bitta so'rovda (ikki omborchi bir xil raqam olmasin)
+# Model raqamlari va kodlarni ajratish bir vaqtda faqat bitta so'rovda (ikki omborchi bir xil raqam olmasin)
 _allocation_lock = asyncio.Lock()
+
+# MoySklad'da takroriy kod topilsa adminlarga ogohlantirish (6 soatda bir martadan ko'p emas)
+DUPLICATE_WARN_INTERVAL = 6 * 3600
+_last_duplicate_warning = {"time": 0.0, "codes": ()}
+
+async def _warn_duplicate_codes(duplicates: List[str]):
+    now = time.time()
+    codes = tuple(duplicates)
+    if codes == _last_duplicate_warning["codes"] and now - _last_duplicate_warning["time"] < DUPLICATE_WARN_INTERVAL:
+        return
+    _last_duplicate_warning.update(time=now, codes=codes)
+    logger.warning(f"MoySklad'da takroriy tovar kodlari: {', '.join(codes)}")
+    shown = ", ".join(codes[:20]) + (f" ... (+{len(codes) - 20})" if len(codes) > 20 else "")
+    await tg_service.send_message(
+        f"<b>⚠️ {html.escape(tg_service.settings.company_name)} — KOD NAZORATI</b>\n\n"
+        f"MoySklad'da bir xil kodli tovarlar bor: <code>{html.escape(shown)}</code>\n"
+        f"Kirim kod bo'yicha ishlaydi — bu kodlarni MoySklad'da tuzating (Товары → Код)."
+    )
 
 @router.post("/submit-moysklad")
 async def submit_to_moysklad(data: Dict[str, Any], request: Request, db: Session = Depends(get_db)):
@@ -322,8 +344,11 @@ async def submit_to_moysklad(data: Dict[str, Any], request: Request, db: Session
         if await ms_service.supply_exists(doc_number):
             raise HTTPException(status_code=409, detail=f"MoySklad'da №{doc_number} raqamli Приемка allaqachon mavjud. Hujjat raqamini o'zgartiring.")
         ms_max = await ms_service.get_max_model_number()
+        code_stats = await ms_service.get_code_stats()
     except MoySkladError as e:
         raise HTTPException(status_code=502, detail=f"MoySklad'dan ma'lumot olib bo'lmadi: {e}")
+    if code_stats["duplicates"]:
+        await _warn_duplicate_codes(code_stats["duplicates"])
     async with _allocation_lock:
         sync_counter(db, ms_max)
         numbers = allocate_model_numbers(db, scope, [p["model_key"] for p in prepared if not p["custom_articul"]])
@@ -355,6 +380,13 @@ async def submit_to_moysklad(data: Dict[str, Any], request: Request, db: Session
                                          p["size"] if size_in_name else ""),
             **money,
         })
+
+    # Tovar kodlari: MoySklad'dagi eng katta koddan keyin, ketma-ket, tovarga (artikul+razmer) doimiy bog'langan
+    async with _allocation_lock:
+        sync_counter(db, code_stats["max"], CODE_COUNTER)
+        codes = allocate_codes(db, scope, [it["product_key"] for it in items])
+    for it in items:
+        it["code"] = codes[it["product_key"]]
 
     total_sum_buy = round(sum(it["sum_buy"] for it in items), 2)
     total_sum_sale = round(sum(it["sum_sale"] for it in items), 2)
@@ -445,7 +477,7 @@ async def submit_to_moysklad(data: Dict[str, Any], request: Request, db: Session
         "total_items": len(items),
         "total_sum_buy": total_sum_buy,
         "total_sum_sale": total_sum_sale,
-        "articuls": [{"row": it["row_index"], "model": it["model_code"], "articul": it["articul"], "size": it["size"]} for it in items],
+        "articuls": [{"row": it["row_index"], "model": it["model_code"], "articul": it["articul"], "size": it["size"], "code": it["code"]} for it in items],
     }
 
 @router.get("/history")

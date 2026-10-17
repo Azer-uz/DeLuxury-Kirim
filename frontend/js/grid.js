@@ -1,7 +1,8 @@
 // Interactive Excel-like Grid Engine
 const Grid = {
   rows: [],
-  baseCounter: 500,
+  baseCounter: 0,
+  baseCode: 0,
   activeCell: { rowIndex: 0, colKey: 'product_type' },
   activeDraftId: null,
   isDirty: false,
@@ -31,8 +32,14 @@ const Grid = {
       if (resp.ok) {
         const data = await resp.json();
         this.baseCounter = data.last_number || 0;
+        this.baseCode = data.last_code || 0;
         const counterInput = document.getElementById('settings-articul-counter');
         if (counterInput) counterInput.value = this.baseCounter;
+        const codeInput = document.getElementById('settings-code-counter');
+        if (codeInput) codeInput.value = this.baseCode;
+        if (data.duplicate_codes && data.duplicate_codes.length && typeof showToast === 'function') {
+          showToast(`⚠️ MoySklad'da takroriy tovar kodlari bor: ${data.duplicate_codes.slice(0, 10).join(', ')}`, 'error');
+        }
       }
     } catch (e) {
       console.error("Error fetching articul counter:", e);
@@ -63,11 +70,23 @@ const Grid = {
 
   computeModelOrdinals() {
     const ordinals = new Map();
+    let productIdx = 0;
     this.rows.forEach(r => {
       if (!r.model_key) r.model_key = this.newModelKey();
-      if (this.isUsefulRow(r) && !ordinals.has(r.model_key)) ordinals.set(r.model_key, ordinals.size);
+      if (this.isUsefulRow(r)) {
+        if (!ordinals.has(r.model_key)) ordinals.set(r.model_key, ordinals.size);
+        r._product_idx = productIdx++;  // har bir to'ldirilgan qator — bitta tovar (bitta kod)
+      } else {
+        r._product_idx = null;
+      }
     });
     return ordinals;
+  },
+
+  // Tovar kodi (taxminiy): MoySklad'dagi oxirgi koddan keyin ketma-ket. Aniq kodni yuborishda backend beradi
+  previewCode(row) {
+    if (row._product_idx === null || row._product_idx === undefined) return '';
+    return String((this.baseCode || 0) + row._product_idx + 1).padStart(5, '0');
   },
 
   calcRow(rowIdx, ordinals = null) {
@@ -75,10 +94,12 @@ const Grid = {
     const map = ordinals || this.computeModelOrdinals();
     const ord = map.has(row.model_key) ? map.get(row.model_key) : null;
     const calc = References.calculateRow(row, ord, this.baseCounter, this.getRate());
+    calc.code = this.previewCode(row);
     if (!this.isUsefulRow(row)) {
-      // Bo'sh qator — model/artikul ko'rsatilmaydi
+      // Bo'sh qator — model/artikul/kod ko'rsatilmaydi
       calc.model_code = '';
       calc.articul = '';
+      calc.code = '';
     }
     return calc;
   },
@@ -91,10 +112,13 @@ const Grid = {
       const calc = this.calcRow(i, ordinals);
       row.model_code = calc.model_code || '';
       row.articul = calc.articul || '';
+      row.code = calc.code || '';
       const tr = trs[i];
       if (!tr) return;
       const elModel = tr.querySelector('.cell-model');
       if (elModel) elModel.textContent = row.model_code || '-';
+      const elCode = tr.querySelector('.cell-code');
+      if (elCode) elCode.textContent = row.code || '-';
       const elArt = tr.querySelector('.cell-articul');
       if (elArt) elArt.textContent = row.articul || '-';
     });
@@ -411,9 +435,9 @@ const Grid = {
             <span class="cell-auto cell-model" style="color: #fbbf24; font-weight: 700; letter-spacing: 0.5px; font-family: monospace; display: block; padding: 2px 4px;">${this.escapeHtml(row.model_code || '-')}</span>
           </td>
 
-          <!-- Kod (MoySklad avtomatik beradi) -->
+          <!-- Kod (taxminiy; aniq kodni yuborishda tizim beradi — ketma-ket, unikal) -->
           <td style="text-align: center;">
-            <span class="cell-auto cell-code" style="color: var(--text-dim); font-size: 0.72rem;" title="Tovar kodini MoySklad o'zi beradi">MoySklad</span>
+            <span class="cell-auto cell-code" style="color: #38bdf8; font-weight: 700; letter-spacing: 0.5px;" title="Taxminiy kod. Yuborishda MoySklad bilan tekshirilib, ketma-ket unikal kod beriladi">${this.escapeHtml(row.code || '-')}</span>
           </td>
 
           <!-- Artikul (Auto) -->

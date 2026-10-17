@@ -160,6 +160,7 @@ class PrixodItem(Base):
     
     # Auto-calculated
     articul = Column(String(100), nullable=True, index=True)
+    code = Column(String(50), nullable=True)  # ilova bergan unikal tovar kodi (audit: qaysi kod qaysi kirimda berilgan)
     full_name = Column(String(255), nullable=True)
     
     # AI info

@@ -146,6 +146,31 @@ class MoySkladService:
         self._products_scan = (time.time(), rows)
         return rows
 
+    async def get_code_stats(self) -> Dict[str, Any]:
+        """Butun assortiment (tovar, xizmat, komplekt, modifikatsiya) kodlari: eng katta raqamli kod va takrorlar.
+        Kod MoySklad'da butun assortiment bo'yicha unikal bo'lishi kerak"""
+        rows = await self._fetch_all("entity/assortment")
+        seen: Dict[str, int] = {}
+        highest = 0
+        for r in rows:
+            code = (r.get("code") or "").strip()
+            if not code:
+                continue
+            seen[code] = seen.get(code, 0) + 1
+            if code.isdigit():
+                highest = max(highest, int(code))
+        return {"max": highest, "duplicates": sorted(c for c, n in seen.items() if n > 1), "total": len(rows)}
+
+    async def find_products_by_codes(self, codes: List[str]) -> Dict[str, Dict[str, Any]]:
+        found: Dict[str, Dict[str, Any]] = {}
+        unique = list(dict.fromkeys(c for c in codes if c))
+        for i in range(0, len(unique), BULK_CHUNK):
+            chunk = unique[i:i + BULK_CHUNK]
+            data = await self._call("GET", "entity/product", params={"filter": ";".join(f"code={c}" for c in chunk), "limit": 1000})
+            for p in data.get("rows", []):
+                found[(p.get("code") or "").strip()] = p
+        return found
+
     async def get_max_model_number(self) -> int:
         """MoySklad'dagi artikullardan eng katta model raqami (A26TOP00724BLK -> 724)"""
         highest = 0
@@ -267,9 +292,10 @@ class MoySkladService:
         if pt_meta:
             sale_price["priceType"] = {"meta": pt_meta}
 
-        # "code" yuborilmaydi — tovar kodini MoySklad o'zi mustaqil yuritadi
+        # Kod — ilova bergan unikal kalit (ketma-ket, qaytarilmaydi). Shtrixkodni MoySklad o'zi beradi
         payload: Dict[str, Any] = {
             "name": item["full_name"],
+            "code": item["code"],
             "article": item["articul"],
             "description": item.get("description") or "",
             "buyPrice": buy_price,
@@ -284,31 +310,36 @@ class MoySkladService:
             payload["country"] = {"meta": country_meta}
         return payload
 
-    async def _assign_missing_codes(self, products: List[Dict[str, Any]]):
-        """Zaxira: MoySklad kodni avtomatik bermagan bo'lsa, eng katta raqamli koddan davom ettiramiz"""
-        missing = [p for p in products if not p.get("code")]
-        if not missing:
-            return
-        all_products = await self.get_all_products(max_age=0)
-        highest = max((int(c) for c in (p.get("code") or "" for p in all_products) if c.isdigit()), default=0)
-        for p in missing:
-            highest += 1
-            updated = await self._call("PUT", f"entity/product/{p['id']}", json_data={"code": f"{highest:05d}"})
-            p["code"] = updated.get("code")
+    def _same_product(self, product: Dict[str, Any], item: Dict[str, Any], match_size: bool) -> bool:
+        if (product.get("article") or "").strip() != item["articul"]:
+            return False
+        return not match_size or self.product_size(product) == item["product_key"][1]
 
     async def ensure_products(self, items: List[Dict[str, Any]], buy_currency_meta: Optional[Dict[str, Any]], match_size: bool) -> Dict[tuple, Dict[str, Any]]:
-        """Har bir qator uchun MoySklad tovari (kalit — item["product_key"]): mavjudini topadi (qayta yuborishda ham),
-        yo'qlarini bulk yaratadi. Razmer rejimida tovar = (artikul, razmer)"""
+        """Har bir qator uchun MoySklad tovari (kalit — item["product_key"]), KOD bo'yicha:
+          - kod MoySklad'da shu artikul(+razmer) tovarida bo'lsa — o'sha tovar (xatodan keyin qayta yuborish);
+          - kod boshqa tovarda band bo'lsa yoki shu artikul(+razmer) boshqa kod bilan mavjud bo'lsa — TO'XTATAMIZ
+            (takror kod yoki takror tovar yaratilmasin);
+          - qolganlari shu kod bilan bulk yaratiladi va MoySklad qaytargan kod tekshiriladi."""
+        by_code = await self.find_products_by_codes([it["code"] for it in items])
         by_article = await self.find_products_by_articles([it["articul"] for it in items])
         existing: Dict[tuple, Dict[str, Any]] = {}
+        conflicts: List[str] = []
         for it in items:
-            candidates = by_article.get(it["articul"], [])
-            if match_size:
-                match = next((p for p in candidates if self.product_size(p) == it["product_key"][1]), None)
-            else:
-                match = candidates[0] if candidates else None
-            if match:
-                existing[it["product_key"]] = match
+            label = f"{it['row_index']}-qator ({it['articul']}{' / ' + it['size'] if match_size else ''})"
+            owner = by_code.get(it["code"])
+            if owner:
+                if self._same_product(owner, it, match_size):
+                    existing[it["product_key"]] = owner
+                else:
+                    conflicts.append(f"{label}: kod {it['code']} MoySklad'da boshqa tovarda band — «{owner.get('name')}» ({owner.get('article') or 'artikulsiz'})")
+                continue
+            twin = next((p for p in by_article.get(it["articul"], []) if self._same_product(p, it, match_size)), None)
+            if twin:
+                conflicts.append(f"{label}: bu tovar MoySklad'da boshqa kod bilan allaqachon bor — kod {twin.get('code')}")
+        if conflicts:
+            raise MoySkladError("Kod nazorati: " + " | ".join(conflicts[:5]) + (f" | ... yana {len(conflicts) - 5} ta" if len(conflicts) > 5 else ""))
+
         to_create = [it for it in items if it["product_key"] not in existing]
         created: List[Dict[str, Any]] = []
 
@@ -325,13 +356,14 @@ class MoySkladService:
                     elif isinstance(res, dict) and res.get("meta"):
                         existing[it["product_key"]] = res
                         created.append(res)
+                        if (res.get("code") or "") != it["code"]:
+                            errors.append(f"{it['row_index']}-qator: MoySklad kodni {it['code']} o'rniga {res.get('code') or 'bo`sh'} qilib saqladi")
                 if errors:
                     raise MoySkladError("Tovar yaratilmadi — " + " | ".join(errors[:5]))
         finally:
             if created:
                 self._products_scan = (0.0, [])  # model raqami skaneri keyingi safar yangilansin
 
-        await self._assign_missing_codes(created)
         return existing
 
     # ================= PRIYOMKA (SUPPLY) =================
