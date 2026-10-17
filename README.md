@@ -20,14 +20,15 @@ Kiyim-kechak chakana savdosi uchun **приход (товар qabul qilish)** ja
 
 ### 🧩 Kirim qoidalari (har bir do'kon uchun Sozlamalar bo'limida)
 
-| Rang | Razmer | Artikul | Misol |
-|---|---|---|---|
-| o'chiq | o'chiq | Модель | `A26TOP00724` |
-| yoqiq | o'chiq | Модель + Rang kodi | `A26TOP00724BLK` |
-| o'chiq | yoqiq | Модель + `-` + Razmer | `A26TOP00724-XL` |
-| yoqiq | yoqiq | Модель + Rang + `-` + Razmer | `A26TOP00724BLK-XL` |
+| Rang | Artikul | Misol |
+|---|---|---|
+| o'chiq | Модель | `A26TOP00724` |
+| yoqiq | Модель + Rang kodi | `A26TOP00724BLK` |
 
-- Bir modelning rang/razmer variantlari **bitta model raqamini** oladi, MoySklad'da har biri alohida tovar.
+- **Razmer** artikulga kirmaydi. Razmer rejimi yoqilsa, har bir razmer (S, M, L ...) **bir xil artikulli alohida tovar** bo'ladi,
+  o'z kodi va shtrixkodi bilan (MoySklad beradi). Sozlamaga qarab razmer tovar nomining oxiriga qo'shiladi.
+  Misol: 1 model × 4 rang × 5 razmer = **1 model raqami, 4 artikul, 20 tovar** (20 kod / 20 shtrixkod).
+- Bir modelning rang/razmer variantlari **bitta model raqamini** oladi.
   Jadvalda bir nechta rang tanlab yoki razmer katagiga `S, M, L` yozib **Ctrl+Enter** bosilsa — variant qatorlari yaratiladi.
 - Model raqami MoySklad'dagi artikullardan avtomatik sinxronlanadi va qoralamaga doimiy bog'lanadi:
   xato bo'lib qayta yuborilsa ham artikullar o'zgarmaydi, tovarlar qayta yaratilmaydi.

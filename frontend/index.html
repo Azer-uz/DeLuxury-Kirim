@@ -802,18 +802,17 @@
                 <input type="checkbox" id="set-color-enabled"> Rang bo'yicha alohida tovar (artikulga rang kodi qo'shiladi)
               </label>
               <label style="display: flex; gap: 0.5rem; align-items: center;">
-                <input type="checkbox" id="set-size-enabled"> Razmer bo'yicha alohida tovar (S, M, L, XL ... )
+                <input type="checkbox" id="set-size-enabled"> Razmer bo'yicha alohida tovar (S, M, L, XL ... — artikul bir xil, kod/shtrixkod alohida)
               </label>
-              <label style="display: flex; gap: 0.5rem; align-items: center;">
-                Razmer ajratgichi:
-                <input type="text" class="form-control" id="set-size-separator" maxlength="3" style="width: 60px; height: 28px;">
+              <label style="display: flex; gap: 0.5rem; align-items: center; padding-left: 1.4rem;">
+                <input type="checkbox" id="set-size-in-name"> Razmer tovar nomining oxiriga qo'shilsin (kassa va inventarizatsiyada ajratish uchun)
               </label>
               <label style="display: flex; gap: 0.5rem; align-items: center;">
                 <input type="checkbox" id="set-usd-enabled"> Dollarda (USD) kirim qilish imkoniyati
               </label>
               <div style="color: var(--text-muted);">
                 Artikul namunasi: <code id="set-articul-example">A26TOP00724</code>
-                <div style="font-size: 0.75rem;">Bir modelning rang/razmerlari bitta model raqamini oladi, har biri MoySklad'da alohida tovar.</div>
+                <div style="font-size: 0.75rem;" id="set-articul-hint">Bir modelning rang/razmerlari bitta model raqamini oladi, har biri MoySklad'da alohida tovar.</div>
               </div>
               <label class="form-label" style="margin-top: 0.4rem;">Do'kon nomi</label>
               <input type="text" class="form-control" id="set-company-name">
@@ -1090,11 +1089,11 @@
   <script src="js/auth.js?v=1.0"></script>
   <script src="js/dashboard.js"></script>
   <script src="js/supplies.js?v=2.8"></script>
-  <script src="js/references.js?v=2.8"></script>
+  <script src="js/references.js?v=2.9"></script>
   <script src="js/grid.js?v=2.9"></script>
   <script src="js/ai-scanner.js?v=3.2"></script>
   <script src="js/history.js"></script>
-  <script src="js/app.js?v=2.9"></script>
+  <script src="js/app.js?v=3.0"></script>
 
 </body>
 </html>

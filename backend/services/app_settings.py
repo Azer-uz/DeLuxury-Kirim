@@ -1,11 +1,11 @@
 """Har bir mijoz o'rnatmasi uchun sozlanadigan kirim qoidalari.
 
-Rejimlar (artikul tuzilishi):
-  - rang ham, razmer ham o'chiq: Артикул = Модель                  (A26TOP00724)
-  - faqat rang:                  Артикул = Модель + Rang kodi       (A26TOP00724BLK)
-  - faqat razmer:                Артикул = Модель + "-" + Razmer    (A26TOP00724-XL)
-  - rang + razmer:               Артикул = Модель + Rang + "-" + R. (A26TOP00724BLK-XL)
-Bir modelning barcha rang/razmer variantlari bitta model raqamini oladi, har biri MoySklad'da alohida tovar.
+Rejimlar:
+  - rang o'chiq:  Артикул = Модель              (A26TOP00724)
+  - rang yoqiq:   Артикул = Модель + Rang kodi  (A26TOP00724BLK)
+  - razmer yoqiq: razmer artikulga KIRMAYDI — har bir razmer bir xil artikulli alohida tovar
+                  (o'z kodi va shtrixkodi bilan; nomiga razmer qo'shilishi sozlanadi)
+Misol: 1 model × 4 rang × 5 razmer = 1 model raqami, 4 artikul, 20 tovar (kod/shtrixkod).
 """
 import json
 from typing import Any, Dict
@@ -16,13 +16,13 @@ from backend.models import AppSetting
 DEFAULTS: Dict[str, Any] = {
     "company_name": None,        # None -> .env COMPANY_NAME
     "color_enabled": True,       # Rang artikulga qo'shiladi va majburiy
-    "size_enabled": False,       # Razmer artikulga qo'shiladi va majburiy (S, M, L ... alohida tovar)
-    "size_separator": "-",       # Model/rang va razmer orasidagi belgi
+    "size_enabled": False,       # Har bir razmer (S, M, L ...) — alohida tovar, razmer majburiy
+    "size_in_name": True,        # Razmer rejimida tovar nomi oxiriga razmer qo'shiladi (kassa/inventarizatsiyada ajratish uchun)
     "usd_enabled": False,        # Kirimni dollarda qilish imkoniyati (odatda faqat so'm)
     "allowed_logins": "",        # Bo'sh — MoySklad hisobining barcha xodimlari kira oladi
 }
 
-BOOL_KEYS = {"color_enabled", "size_enabled", "usd_enabled"}
+BOOL_KEYS = {"color_enabled", "size_enabled", "size_in_name", "usd_enabled"}
 
 def get_app_settings(db: Session) -> Dict[str, Any]:
     stored = {s.key: s.value for s in db.query(AppSetting).filter(AppSetting.key.in_(DEFAULTS.keys())).all()}
@@ -45,8 +45,6 @@ def update_app_settings(db: Session, changes: Dict[str, Any]) -> Dict[str, Any]:
             continue
         if key in BOOL_KEYS:
             value = bool(value)
-        elif key == "size_separator":
-            value = str(value or "")[:3]
         elif value is not None:
             value = str(value).strip()
         row = db.query(AppSetting).filter(AppSetting.key == key).first()

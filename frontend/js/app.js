@@ -865,7 +865,7 @@ function applySettingsUI() {
   };
   setVal('set-color-enabled', s.color_enabled);
   setVal('set-size-enabled', s.size_enabled);
-  setVal('set-size-separator', s.size_separator);
+  setVal('set-size-in-name', s.size_in_name);
   setVal('set-usd-enabled', s.usd_enabled);
   setVal('set-company-name', s.company_name);
   setVal('set-allowed-logins', s.allowed_logins);
@@ -876,13 +876,7 @@ function applySettingsUI() {
   const hint = document.getElementById('set-admin-hint');
   if (hint) hint.style.display = isAdmin ? 'none' : '';
 
-  const example = document.getElementById('set-articul-example');
-  if (example) {
-    let art = 'A26TOP00724';
-    if (s.color_enabled) art += 'BLK';
-    if (s.size_enabled) art += `${s.size_separator || '-'}XL`;
-    example.textContent = art;
-  }
+  renderArticulExample(s.color_enabled, s.size_enabled);
 
   if (s.company_name) {
     document.title = `${s.company_name} — Kirim & Ta'minot Hub`;
@@ -891,15 +885,26 @@ function applySettingsUI() {
   syncCurrencyUI();
 }
 
+// Sozlamalarda artikul namunasi: razmer artikulga kirmaydi, faqat tovarlar sonini ko'paytiradi
+function renderArticulExample(colorOn, sizeOn) {
+  const example = document.getElementById('set-articul-example');
+  const hint = document.getElementById('set-articul-hint');
+  if (example) example.textContent = colorOn ? 'A26TOP00724BLK' : 'A26TOP00724';
+  if (hint) {
+    const colors = colorOn ? 4 : 1;
+    const sizes = sizeOn ? 5 : 1;
+    hint.textContent = `Masalan: 1 model${colorOn ? ' × 4 rang' : ''}${sizeOn ? ' × 5 razmer' : ''} = 1 model raqami, `
+      + `${colors} artikul, ${colors * sizes} tovar (har birining kodi va shtrixkodini MoySklad beradi).`;
+  }
+}
+
 function setupAppSettingsForm() {
-  ['set-color-enabled', 'set-size-enabled', 'set-size-separator'].forEach(id => {
+  ['set-color-enabled', 'set-size-enabled'].forEach(id => {
     document.getElementById(id)?.addEventListener('change', () => {
-      const example = document.getElementById('set-articul-example');
-      if (!example) return;
-      let art = 'A26TOP00724';
-      if (document.getElementById('set-color-enabled')?.checked) art += 'BLK';
-      if (document.getElementById('set-size-enabled')?.checked) art += `${document.getElementById('set-size-separator')?.value || '-'}XL`;
-      example.textContent = art;
+      renderArticulExample(
+        document.getElementById('set-color-enabled')?.checked,
+        document.getElementById('set-size-enabled')?.checked
+      );
     });
   });
 
@@ -907,7 +912,7 @@ function setupAppSettingsForm() {
     const payload = {
       color_enabled: document.getElementById('set-color-enabled')?.checked,
       size_enabled: document.getElementById('set-size-enabled')?.checked,
-      size_separator: document.getElementById('set-size-separator')?.value || '-',
+      size_in_name: document.getElementById('set-size-in-name')?.checked,
       usd_enabled: document.getElementById('set-usd-enabled')?.checked,
       company_name: document.getElementById('set-company-name')?.value || '',
       allowed_logins: document.getElementById('set-allowed-logins')?.value || ''

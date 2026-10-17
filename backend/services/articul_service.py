@@ -1,8 +1,9 @@
 """Artikul, model, nom va narx formulalari — backend uchun yagona manba.
 
 Модель   = Mavsum_kodi(Коллекция) + Guruh_kodi(Вид товара → Группа) + 5 xonali model raqami
-Артикул  = Модель [+ Rang kodi] [+ ajratgich + Razmer]  (sozlamaga qarab, app_settings.py)
-Код      = MoySklad o'zi beradi (ilova yubormaydi)
+Артикул  = Модель [+ Rang kodi]  (rang rejimi yoqilgan bo'lsa)
+Razmer   = artikulga kirmaydi: razmer rejimida har bir razmer bir xil artikulli ALOHIDA tovar
+Код, штрихкод = MoySklad o'zi beradi (ilova yubormaydi)
 """
 from typing import Any, Dict, Iterable, List, Optional
 from sqlalchemy.orm import Session
@@ -49,17 +50,18 @@ def is_multi_size(size: Optional[str]) -> bool:
 def build_model_code(season_code: str, group_code: str, number: int) -> str:
     return f"{season_code}{group_code}{number:05d}"
 
-def build_articul(model_code: str, color_code: Optional[str], size: Optional[str], settings: Dict[str, Any]) -> str:
-    articul = model_code
+def build_articul(model_code: str, color_code: Optional[str], settings: Dict[str, Any]) -> str:
     if settings.get("color_enabled") and color_code:
-        articul += color_code
-    if settings.get("size_enabled") and size:
-        articul += f"{settings.get('size_separator', '-')}{normalize_size(size)}"
-    return articul
+        return model_code + color_code
+    return model_code
 
-def build_full_name(product_type: str, description: str, brand: str, factory_code: str) -> str:
-    """Наименование = Вид товара + Описание + Бренд + Код модели (zavod). Rang/razmer nomga qo'shilmaydi"""
-    return " ".join(p.strip() for p in (product_type, description, brand, factory_code) if p and p.strip())
+def build_full_name(product_type: str, description: str, brand: str, factory_code: str, size: str = "") -> str:
+    """Наименование = Вид товара + Описание + Бренд + Код модели (zavod) [+ Razmer — razmer rejimida, sozlamaga qarab]"""
+    return " ".join(p.strip() for p in (product_type, description, brand, factory_code, size) if p and p.strip())
+
+def product_key(articul: str, size: Optional[str], settings: Dict[str, Any]) -> tuple:
+    """MoySklad'dagi bitta tovar: razmer rejimida (artikul, razmer), aks holda faqat artikul"""
+    return (articul, normalize_size(size) if settings.get("size_enabled") else "")
 
 def calc_money(qty: float, price_buy: float, price_sale: float, rate: float = 1.0) -> Dict[str, float]:
     """rate — USD kirimda tan narxni so'mga o'tkazish kursi (sotuv narxi doim so'mda)"""

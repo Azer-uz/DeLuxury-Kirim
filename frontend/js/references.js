@@ -31,7 +31,7 @@ const References = {
     company_name: '',
     color_enabled: true,
     size_enabled: false,
-    size_separator: '-',
+    size_in_name: true,
     usd_enabled: false
   },
 
@@ -138,7 +138,7 @@ const References = {
   /**
    * Qator formulalari (oldindan ko'rish). Haqiqiy model raqamini yuborishda backend beradi.
    *   Модель  = Mavsum kodi + Guruh kodi + (baseCounter + modelOrdinal + 1)
-   *   Артикул = Модель [+ Rang kodi] [+ ajratgich + Razmer] — sozlamaga qarab
+   *   Артикул = Модель [+ Rang kodi] — razmer artikulga kirmaydi (razmer rejimida har bir razmer alohida tovar)
    * modelOrdinal — jadvaldagi model tartibi (bir modelning rang/razmer variantlari bir xil tartibni oladi).
    * rate — USD kirimda kurs: tan narx dollarda, sotuv narxi doim so'mda.
    */
@@ -166,14 +166,12 @@ const References = {
     const modelCode = (row.custom_model && row.model_code && row.model_code.trim()) ? row.model_code.trim() : calculatedModel;
 
     const colorCode = this.settings.color_enabled ? this.getColorCode(color) : '';
-    let calculatedArticul = modelCode + colorCode;
-    if (this.settings.size_enabled && size) {
-      const sizes = this.splitSizes(size);
-      calculatedArticul += `${this.settings.size_separator || '-'}${sizes.length > 1 ? '?' : this.normalizeSize(size)}`;
-    }
+    const calculatedArticul = modelCode + colorCode;
 
-    // Tovar nomiga Rang/Razmer qo'shilmaydi. Brenddan keyin Код модели (Zavod artikuli) turadi:
-    const nameParts = [pType, desc, brand, factoryCode].filter(Boolean);
+    // Nomga rang qo'shilmaydi. Brenddan keyin Код модели (Zavod artikuli); razmer rejimida (sozlamaga qarab) oxirida razmer
+    const sizeForName = (this.settings.size_enabled && this.settings.size_in_name && this.splitSizes(size).length === 1)
+      ? this.normalizeSize(size) : '';
+    const nameParts = [pType, desc, brand, factoryCode, sizeForName].filter(Boolean);
     const fullName = nameParts.join(' ').trim();
 
     let finalSale = pSale;

@@ -9,7 +9,7 @@ from backend.models import PrixodDocument, PrixodItem, DraftState, ModelAllocati
 from backend.services.app_settings import get_app_settings
 from backend.services.articul_service import (
     RefLookup, allocate_model_numbers, build_articul, build_full_name, build_model_code,
-    calc_money, is_multi_size, normalize_size, sync_counter
+    calc_money, is_multi_size, normalize_size, product_key, sync_counter
 )
 from backend.services.moysklad_service import MoySkladService, MoySkladError
 from backend.services.telegram_service import TelegramService
@@ -267,7 +267,8 @@ def _check_rows(rows: List[Dict[str, Any]], header: Dict[str, Any], settings: Di
             "description": _txt(r.get("description")),
             "color": color,
             "color_code": color_code or "",
-            "size": size,
+            # Razmer rejimida razmer tovarni ajratadi — MoySklad'ga bir xil ko'rinishda ("m" -> "M")
+            "size": normalize_size(size) if settings.get("size_enabled") else size,
             "country": _txt(r.get("country")),
             "quantity": qty,
             "price_buy": p_buy,
@@ -328,25 +329,30 @@ async def submit_to_moysklad(data: Dict[str, Any], request: Request, db: Session
         numbers = allocate_model_numbers(db, scope, [p["model_key"] for p in prepared if not p["custom_articul"]])
 
     items = []
-    seen_articuls: Dict[str, int] = {}
+    seen_products: Dict[tuple, int] = {}
+    size_in_name = settings.get("size_enabled") and settings.get("size_in_name")
     for p in prepared:
         if p["custom_articul"]:
             model_code = ""
             articul = p["custom_articul"]
         else:
             model_code = build_model_code(p["season_code"], p["group_code"], numbers[p["model_key"]])
-            articul = build_articul(model_code, p["color_code"], p["size"], settings)
-        if articul in seen_articuls:
+            articul = build_articul(model_code, p["color_code"], settings)
+        key = product_key(articul, p["size"], settings)
+        if key in seen_products:
+            label = f"{articul} ({p['size']})" if key[1] else articul
             raise HTTPException(status_code=400, detail={"message": "Hujjatda xatoliklar mavjud!", "errors": [{
                 "row": p["row_index"], "field": "articul",
-                "message": f"{p['row_index']}-qator: artikul {articul} {seen_articuls[articul]}-qatorda ham bor."}]})
-        seen_articuls[articul] = p["row_index"]
+                "message": f"{p['row_index']}-qator: {label} tovari {seen_products[key]}-qatorda ham bor."}]})
+        seen_products[key] = p["row_index"]
         money = calc_money(p["quantity"], p["price_buy"], p["price_sale"], rate)
         items.append({
             **{k: v for k, v in p.items() if k not in ("model_key", "custom_articul", "color_code", "group_code", "season_code")},
             "model_code": model_code,
             "articul": articul,
-            "full_name": build_full_name(p["product_type"], p["description"], p["brand"], p["factory_code"]),
+            "product_key": key,
+            "full_name": build_full_name(p["product_type"], p["description"], p["brand"], p["factory_code"],
+                                         p["size"] if size_in_name else ""),
             **money,
         })
 
@@ -378,6 +384,7 @@ async def submit_to_moysklad(data: Dict[str, Any], request: Request, db: Session
 
     # 3. MoySklad
     ms_result = await ms_service.create_supply_document(
+        match_size=bool(settings.get("size_enabled")),
         organization_id=header.get("organization_id"),
         counterparty_id=_txt(header.get("counterparty_id")),
         store_id=_txt(header.get("store_id")),
@@ -438,7 +445,7 @@ async def submit_to_moysklad(data: Dict[str, Any], request: Request, db: Session
         "total_items": len(items),
         "total_sum_buy": total_sum_buy,
         "total_sum_sale": total_sum_sale,
-        "articuls": [{"row": it["row_index"], "model": it["model_code"], "articul": it["articul"]} for it in items],
+        "articuls": [{"row": it["row_index"], "model": it["model_code"], "articul": it["articul"], "size": it["size"]} for it in items],
     }
 
 @router.get("/history")

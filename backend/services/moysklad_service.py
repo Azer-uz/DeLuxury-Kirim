@@ -210,16 +210,27 @@ class MoySkladService:
         self._folder_cache[folder_name] = folder
         return folder
 
-    async def find_products_by_articles(self, articles: List[str]) -> Dict[str, Dict[str, Any]]:
-        """Artikul bo'yicha mavjud tovarlar (bir maydon bir necha marta = OR filtri)"""
-        found: Dict[str, Dict[str, Any]] = {}
+    async def find_products_by_articles(self, articles: List[str]) -> Dict[str, List[Dict[str, Any]]]:
+        """Artikul bo'yicha mavjud tovarlar (bir maydon bir necha marta = OR filtri).
+        Razmer rejimida bitta artikulda bir nechta tovar bo'ladi (har bir razmer alohida)"""
+        found: Dict[str, List[Dict[str, Any]]] = {}
         unique = list(dict.fromkeys(a for a in articles if a))
         for i in range(0, len(unique), BULK_CHUNK):
             chunk = unique[i:i + BULK_CHUNK]
             data = await self._call("GET", "entity/product", params={"filter": ";".join(f"article={a}" for a in chunk), "limit": 1000})
             for p in data.get("rows", []):
-                found[(p.get("article") or "").strip()] = p
+                found.setdefault((p.get("article") or "").strip(), []).append(p)
         return found
+
+    @staticmethod
+    def product_size(product: Dict[str, Any]) -> str:
+        """Tovarning "Размер" atributi (customentity bo'lsa nomi), normallashtirilgan: " m " -> "M" """
+        for attr in product.get("attributes", []):
+            if attr.get("name") == "Размер":
+                value = attr.get("value")
+                value = value.get("name", "") if isinstance(value, dict) else value
+                return "".join(str(value or "").split()).upper()
+        return ""
 
     async def build_product_payload(self, item: Dict[str, Any], buy_currency_meta: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         attr_map = await self._attributes_map()
@@ -285,10 +296,20 @@ class MoySkladService:
             updated = await self._call("PUT", f"entity/product/{p['id']}", json_data={"code": f"{highest:05d}"})
             p["code"] = updated.get("code")
 
-    async def ensure_products(self, items: List[Dict[str, Any]], buy_currency_meta: Optional[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
-        """Har bir artikul uchun MoySklad tovari: mavjudini topadi (qayta yuborishda ham), yo'qlarini bulk yaratadi"""
-        existing = await self.find_products_by_articles([it["articul"] for it in items])
-        to_create = [it for it in items if it["articul"] not in existing]
+    async def ensure_products(self, items: List[Dict[str, Any]], buy_currency_meta: Optional[Dict[str, Any]], match_size: bool) -> Dict[tuple, Dict[str, Any]]:
+        """Har bir qator uchun MoySklad tovari (kalit — item["product_key"]): mavjudini topadi (qayta yuborishda ham),
+        yo'qlarini bulk yaratadi. Razmer rejimida tovar = (artikul, razmer)"""
+        by_article = await self.find_products_by_articles([it["articul"] for it in items])
+        existing: Dict[tuple, Dict[str, Any]] = {}
+        for it in items:
+            candidates = by_article.get(it["articul"], [])
+            if match_size:
+                match = next((p for p in candidates if self.product_size(p) == it["product_key"][1]), None)
+            else:
+                match = candidates[0] if candidates else None
+            if match:
+                existing[it["product_key"]] = match
+        to_create = [it for it in items if it["product_key"] not in existing]
         created: List[Dict[str, Any]] = []
 
         try:
@@ -302,7 +323,7 @@ class MoySkladService:
                     if isinstance(res, dict) and res.get("errors"):
                         errors.append(f"{it['row_index']}-qator ({it['articul']}): " + "; ".join(e.get("error", "") for e in res["errors"]))
                     elif isinstance(res, dict) and res.get("meta"):
-                        existing[it["articul"]] = res
+                        existing[it["product_key"]] = res
                         created.append(res)
                 if errors:
                     raise MoySkladError("Tovar yaratilmadi — " + " | ".join(errors[:5]))
@@ -325,6 +346,7 @@ class MoySkladService:
         doc_date: Optional[str] = None,
         currency: str = "UZS",
         rate: Optional[float] = None,
+        match_size: bool = False,
     ) -> Dict[str, Any]:
         try:
             if organization_id:
@@ -345,13 +367,13 @@ class MoySkladService:
                     return {"status": "error", "message": "MoySklad'da USD valyutasi topilmadi (Справочники → Валюты)."}
                 currency_meta = cur["meta"]
 
-            products = await self.ensure_products(items, currency_meta)
+            products = await self.ensure_products(items, currency_meta, match_size)
 
             positions = [
                 {
                     "quantity": float(it["quantity"]),
                     "price": round(float(it["price_buy"]) * 100),  # hujjat valyutasida, tiyin/sentlarda
-                    "assortment": {"meta": products[it["articul"]]["meta"]},
+                    "assortment": {"meta": products[it["product_key"]]["meta"]},
                 }
                 for it in items
             ]
