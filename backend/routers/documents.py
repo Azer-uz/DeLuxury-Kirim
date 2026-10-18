@@ -15,12 +15,14 @@ from backend.services.articul_service import (
     build_model_code, calc_money, is_multi_size, normalize_size, product_key, sync_counter
 )
 from backend.services.moysklad_service import MoySkladService, MoySkladError
-from backend.services.telegram_service import TelegramService
+from backend.services.telegram_service import tg_service
+from backend.services.attributes_service import AttributesService, get_attribute_map, mapping_problems
+from backend.routers.attributes import notify_if_changed
 
 router = APIRouter(prefix="/api/documents", tags=["Documents & Submission"])
 logger = logging.getLogger(__name__)
 ms_service = MoySkladService()
-tg_service = TelegramService()
+attributes_service = AttributesService(ms_service)
 
 @router.get("/drafts")
 def get_all_drafts(db: Session = Depends(get_db)):
@@ -345,8 +347,17 @@ async def submit_to_moysklad(data: Dict[str, Any], request: Request, db: Session
             raise HTTPException(status_code=409, detail=f"MoySklad'da №{doc_number} raqamli Приемка allaqachon mavjud. Hujjat raqamini o'zgartiring.")
         ms_max = await ms_service.get_max_model_number()
         code_stats = await ms_service.get_code_stats()
+        # Доп. поля: ilova maydonlari -> MoySklad atributlari (sozlamadan); tashqi o'zgarish bo'lsa xabar
+        ms_attributes = await attributes_service.list_attributes()
     except MoySkladError as e:
         raise HTTPException(status_code=502, detail=f"MoySklad'dan ma'lumot olib bo'lmadi: {e}")
+    await notify_if_changed(db, ms_attributes, "kirim yuborishda aniqlandi")
+    ms_service.attribute_map = get_attribute_map(db, ms_attributes)
+    attr_problems = mapping_problems(ms_service.attribute_map, ms_attributes)
+    if settings.get("size_enabled") and not ms_service.attribute_map.get("size", {}).get("enabled"):
+        attr_problems.append("Razmer rejimi yoqilgan, lekin 'Размер' maydoni MoySklad atributiga bog'lanmagan — razmerlar farqlanmaydi")
+    if attr_problems:
+        raise HTTPException(status_code=400, detail={"message": "MoySklad доп. поля sozlamasida muammo:", "errors": [{"row": 0, "field": "attributes", "message": m} for m in attr_problems]})
     if code_stats["duplicates"]:
         await _warn_duplicate_codes(code_stats["duplicates"])
     async with _allocation_lock:

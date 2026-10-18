@@ -104,3 +104,6 @@ class TelegramService:
             msg += f"👤 <b>Kiritdi:</b> {html.escape(user)}\n"
         msg += "Omborchi ilovada tuzatib qayta yuborishi kerak."
         await self.send_message(msg)
+
+# Umumiy nusxa — barcha routerlar shundan foydalanadi
+tg_service = TelegramService()

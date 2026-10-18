@@ -247,39 +247,42 @@ class MoySkladService:
                 found.setdefault((p.get("article") or "").strip(), []).append(p)
         return found
 
-    @staticmethod
-    def product_size(product: Dict[str, Any]) -> str:
-        """Tovarning "Размер" atributi (customentity bo'lsa nomi), normallashtirilgan: " m " -> "M" """
+    def product_size(self, product: Dict[str, Any]) -> str:
+        """Tovarning razmer atributi (bog'langan maydon ID bo'yicha, bo'lmasa "Размер" nomi), normallashtirilgan: " m " -> "M" """
+        size_id = (self.attribute_map.get("size") or {}).get("attr_id")
         for attr in product.get("attributes", []):
-            if attr.get("name") == "Размер":
+            if (size_id and attr.get("id") == size_id) or (not size_id and attr.get("name") == "Размер"):
                 value = attr.get("value")
                 value = value.get("name", "") if isinstance(value, dict) else value
                 return "".join(str(value or "").split()).upper()
         return ""
 
+    # Ilova maydoni -> MoySklad atributi (ID bo'yicha). documents.py yuborishdan oldin sozlamadan o'rnatadi
+    attribute_map: Dict[str, Dict[str, Any]] = {}
+
     async def build_product_payload(self, item: Dict[str, Any], buy_currency_meta: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-        attr_map = await self._attributes_map()
-        attr_values = [
-            ("Категория", item.get("category")),
-            ("Вид товара", item.get("product_type")),
-            ("Коллекция", item.get("collection")),
-            ("Сезон", item.get("season")),
-            ("Бренд", item.get("brand")),
-            ("Модель", item.get("model_code")),
-            ("Код модели", item.get("factory_code")),
-            ("Размер", item.get("size")),
-            ("Цвет", item.get("color")),
-        ]
+        attrs_by_id = {a.get("id"): a for a in (await self._attributes_map()).values()}
         attributes = []
-        for attr_name, value in attr_values:
-            meta_info = attr_map.get(attr_name)
+        for field, entry in self.attribute_map.items():
+            if not entry.get("enabled") or not entry.get("attr_id"):
+                continue
+            meta_info = attrs_by_id.get(entry["attr_id"])
+            value = item.get(field)
             if not value or not meta_info:
                 continue
             custom_href = meta_info.get("customEntityMeta", {}).get("href", "")
+            attr_type = meta_info.get("type", "")
             if custom_href:
-                elem_meta = await self._custom_entity_value(custom_href.split("/")[-1], value)
+                elem_meta = await self._custom_entity_value(custom_href.split("/")[-1], str(value))
                 if elem_meta:
                     attributes.append({"meta": meta_info.get("meta"), "value": {"meta": elem_meta}})
+            elif attr_type in ("long", "double"):
+                try:
+                    attributes.append({"meta": meta_info.get("meta"), "value": float(value) if attr_type == "double" else int(float(value))})
+                except (TypeError, ValueError):
+                    continue
+            elif attr_type == "boolean":
+                attributes.append({"meta": meta_info.get("meta"), "value": str(value).strip().lower() in ("1", "true", "ha", "да", "yes")})
             else:
                 attributes.append({"meta": meta_info.get("meta"), "value": str(value)})
 

@@ -43,6 +43,13 @@ Kiyim-kechak chakana savdosi uchun **приход (товар qabul qilish)** ja
 - MoySklad'dagi owner/admin roli — ilovada administrator (sozlamalar, model raqami). "Kirish ruxsati" ro'yxati bilan ilovaga kiradigan xodimlarni cheklash mumkin.
 - `/api/gateway/*` (bot uchun) — faqat localhost yoki `GATEWAY_TOKEN` bilan.
 
+### 🧩 MoySklad доп. поля (Sozlamalar)
+- MoySklad'dagi tovar atributlarini ko'rish, **yaratish** (spravochnik turi uchun yangi spravochnik ham), nomini/majburiyligini o'zgartirish, **o'chirish**.
+- Ilova maydonlari (Категория, Вид товара, Коллекция, Сезон, Бренд, Модель, Код модели, Размер, Цвет, Страна) qaysi MoySklad maydoniga yozilishi — bog'lanish jadvali (ID bo'yicha, nom o'zgarsa buzilmaydi). Standart: nomlari mos kelganlarga avtomatik.
+- MoySklad'da maydonlar tashqaridan o'zgarsa (qo'shildi/o'chirildi/nomi/majburiyligi) — Sozlamalarda banner va Telegram'ga xabar.
+- Bog'lanishda muammo bo'lsa (yoqilgan maydon o'chirilgan, majburiy maydon bog'lanmagan) kirim yuborilmaydi va sabab ko'rsatiladi.
+- Yangi mijoz: nomenklatura kelishilgach, kerakli maydonlar shu yerdan MoySklad'da yaratiladi va bog'lanadi.
+
 ### 🏪 Yangi do'konga o'rnatish
 1. `.env.example` → `.env`, MoySklad tokeni, `COMPANY_NAME` va Telegram sozlamalarini to'ldiring.
 2. Ilovani ishga tushiring, MoySklad admin login/paroli bilan kiring.

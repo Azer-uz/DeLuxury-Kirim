@@ -11,7 +11,7 @@ from backend.seed import seed_database
 from backend.migrations import add_missing_columns, fill_missing_color_codes
 from backend.services.auth_service import SESSION_COOKIE, read_session_token
 from backend.routers import (
-    references, articul, ai, documents, moysklad, gateway, dashboard, auth
+    references, articul, ai, documents, moysklad, gateway, dashboard, auth, attributes
 )
 
 logging.basicConfig(
@@ -88,6 +88,7 @@ async def auth_middleware(request: Request, call_next):
 
 # Include Routers
 app.include_router(auth.router)
+app.include_router(attributes.router)
 app.include_router(gateway.router)
 app.include_router(references.router)
 app.include_router(articul.router)

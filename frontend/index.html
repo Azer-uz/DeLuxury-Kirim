@@ -826,6 +826,60 @@
             </div>
           </div>
 
+          <!-- MoySklad доп. поля (atributlar) boshqaruvi -->
+          <div class="settings-card" id="attributes-card" style="grid-column: 1 / -1; background: var(--bg-card-subtle); padding: 1.5rem; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+            <h4 style="margin-bottom: 0.5rem; color: #38bdf8;">🧩 MoySklad доп. поля (tovar atributlari)</h4>
+            <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1rem;">
+              Mijozning MoySklad'ini shu yerdan tayyorlash: maydonlarni ko'rish, yaratish, o'chirish va ilova maydonlariga bog'lash.
+              MoySklad'da maydonlar tashqaridan o'zgarsa — bu yerda va Telegram'da xabar beriladi.
+            </p>
+            <div id="attributes-alerts"></div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 1.25rem;">
+              <div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                  <b style="font-size: 0.85rem;">MoySklad'dagi maydonlar</b>
+                  <button class="btn btn-secondary btn-sm" id="btn-attributes-refresh">🔄 Yangilash</button>
+                </div>
+                <table class="history-table" style="width: 100%; font-size: 0.8rem;">
+                  <thead><tr><th>Nomi</th><th>Turi</th><th>Majburiy</th><th>Ilovada</th><th></th></tr></thead>
+                  <tbody id="attributes-tbody"><tr><td colspan="5" style="color: var(--text-dim);">Yuklanmoqda...</td></tr></tbody>
+                </table>
+                <div id="attributes-create" style="margin-top: 0.75rem; padding: 0.75rem; border: 1px dashed var(--border-subtle); border-radius: var(--radius-md); display: none;">
+                  <b style="font-size: 0.82rem;">➕ Yangi maydon (MoySklad'da yaratiladi)</b>
+                  <div style="display: grid; grid-template-columns: 1fr 150px; gap: 0.4rem; margin-top: 0.5rem;">
+                    <input type="text" class="form-control" id="attr-new-name" placeholder="Masalan: Материал">
+                    <select class="form-control" id="attr-new-type">
+                      <option value="customentity">Spravochnik</option>
+                      <option value="string">Qisqa matn</option>
+                      <option value="text">Uzun matn</option>
+                      <option value="long">Butun son</option>
+                      <option value="double">Kasr son</option>
+                      <option value="boolean">Ha/Yo'q</option>
+                      <option value="time">Sana</option>
+                      <option value="link">Havola</option>
+                    </select>
+                  </div>
+                  <div id="attr-new-dict-wrap" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; margin-top: 0.4rem;">
+                    <select class="form-control" id="attr-new-dict"><option value="">— yangi spravochnik yaratish —</option></select>
+                    <input type="text" class="form-control" id="attr-new-dict-name" placeholder="Yangi spravochnik nomi">
+                  </div>
+                  <label style="display: flex; gap: 0.4rem; align-items: center; font-size: 0.8rem; margin-top: 0.4rem;">
+                    <input type="checkbox" id="attr-new-required"> Majburiy maydon
+                  </label>
+                  <button class="btn btn-gold btn-sm" id="btn-attr-create" style="margin-top: 0.5rem;">MoySklad'da yaratish</button>
+                </div>
+              </div>
+              <div>
+                <b style="font-size: 0.85rem;">Ilova maydonlari → MoySklad maydonlari</b>
+                <table class="history-table" style="width: 100%; font-size: 0.8rem; margin-top: 0.5rem;">
+                  <thead><tr><th>Ilova maydoni</th><th>MoySklad maydoni</th><th>Yoqiq</th></tr></thead>
+                  <tbody id="attributes-map-tbody"></tbody>
+                </table>
+                <button class="btn btn-gold btn-sm" id="btn-attributes-map-save" style="margin-top: 0.6rem; display: none;">Bog'lanishni saqlash</button>
+              </div>
+            </div>
+          </div>
+
           <!-- Telegram Bot Alert Box -->
           <div class="settings-card" style="background: var(--bg-card-subtle); padding: 1.5rem; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
             <h4 style="margin-bottom: 1rem; color: #34d399;">📱 Telegram Bot Bildirishnomalari</h4>
@@ -1096,7 +1150,7 @@
   <script src="js/grid.js?v=3.0"></script>
   <script src="js/ai-scanner.js?v=3.2"></script>
   <script src="js/history.js"></script>
-  <script src="js/app.js?v=3.1"></script>
+  <script src="js/app.js?v=3.2"></script>
 
 </body>
 </html>

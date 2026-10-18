@@ -19,6 +19,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupQuickAddModals();
   setupAdminDropdown();
   setupAppSettingsForm();
+  setupAttributesUI();
   applySettingsUI();
   AIScanner.init();
 
@@ -232,6 +233,8 @@ function setupNavigationTabs() {
         }
       } else if (targetId === 'tab-references') {
         renderReferencesUI('ref-product-types');
+      } else if (targetId === 'tab-settings') {
+        AttributesUI.load();
       }
     });
   });
@@ -886,6 +889,157 @@ function applySettingsUI() {
     document.querySelectorAll('.brand-badge, #settings-ms-org').forEach(el => { el.textContent = s.company_name; });
   }
   syncCurrencyUI();
+}
+
+// ================= MoySklad доп. поля (Sozlamalar) =================
+const AttributesUI = {
+  data: null,
+  esc: (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])),
+  typeLabel: (t) => ({ customentity: 'Spravochnik', string: 'Qisqa matn', text: 'Uzun matn', long: 'Butun son', double: 'Kasr son', boolean: 'Ha/Yo\'q', time: 'Sana', link: 'Havola', file: 'Fayl' }[t] || t),
+
+  async load() {
+    const tbody = document.getElementById('attributes-tbody');
+    if (!tbody) return;
+    try {
+      const resp = await fetch('/api/attributes');
+      const data = await resp.json();
+      if (!resp.ok) {
+        tbody.innerHTML = `<tr><td colspan="5" style="color: #f87171;">${this.esc(data.detail || 'Xatolik')}</td></tr>`;
+        return;
+      }
+      this.data = data;
+      this.render();
+    } catch (e) {
+      tbody.innerHTML = `<tr><td colspan="5" style="color: #f87171;">Server bilan bog'lanib bo'lmadi</td></tr>`;
+    }
+  },
+
+  render() {
+    const d = this.data;
+    const isAdmin = !!Auth.user?.is_admin;
+    const usedBy = {};
+    d.app_fields.forEach(f => {
+      const m = d.mapping[f.key];
+      if (m && m.enabled && m.attr_id) (usedBy[m.attr_id] = usedBy[m.attr_id] || []).push(f.label.split(' (')[0]);
+    });
+
+    // Ogohlantirishlar: tashqi o'zgarishlar va bog'lanish muammolari
+    const alerts = [];
+    const ch = d.changes;
+    if (ch && (ch.added.length || ch.removed.length || ch.changed.length)) {
+      const lines = [
+        ...ch.added.map(a => `➕ qo'shildi: ${this.esc(a.name)} (${this.typeLabel(a.type)})`),
+        ...ch.removed.map(a => `➖ o'chirildi: ${this.esc(a.name)}`),
+        ...ch.changed.map(c => `✏️ o'zgardi: ${this.esc(c.before.name)} → ${this.esc(c.after.name)}${c.before.required !== c.after.required ? (c.after.required ? ' (majburiy bo\'ldi)' : ' (majburiy emas)') : ''}`)
+      ];
+      alerts.push(`<div style="background: rgba(251,191,36,0.12); border: 1px solid #fbbf24; border-radius: var(--radius-md); padding: 0.6rem 0.8rem; font-size: 0.8rem; margin-bottom: 0.6rem;"><b>⚠️ MoySklad'da maydonlar tashqaridan o'zgargan:</b><br>${lines.join('<br>')}</div>`);
+    }
+    if (d.problems && d.problems.length) {
+      alerts.push(`<div style="background: var(--accent-red-bg, rgba(248,113,113,0.12)); border: 1px solid #f87171; border-radius: var(--radius-md); padding: 0.6rem 0.8rem; font-size: 0.8rem; margin-bottom: 0.6rem;"><b>❌ Kirim yuborishga to'sqinlik qiladi:</b><br>${d.problems.map(p => this.esc(p)).join('<br>')}</div>`);
+    }
+    document.getElementById('attributes-alerts').innerHTML = alerts.join('');
+
+    // MoySklad maydonlari jadvali
+    document.getElementById('attributes-tbody').innerHTML = d.attributes.length ? d.attributes.map(a => `
+      <tr>
+        <td><b>${this.esc(a.name)}</b></td>
+        <td>${this.typeLabel(a.type)}${a.dictionary_id ? ` <span style="color: var(--text-dim);" title="${this.esc((d.dictionaries.find(x => x.id === a.dictionary_id) || {}).name || '')}">📚</span>` : ''}</td>
+        <td style="text-align: center;">${isAdmin ? `<input type="checkbox" data-attr-req="${a.id}" ${a.required ? 'checked' : ''}>` : (a.required ? '✓' : '')}</td>
+        <td style="font-size: 0.72rem; color: ${usedBy[a.id] ? '#34d399' : 'var(--text-dim)'};">${usedBy[a.id] ? '✅ ' + usedBy[a.id].join(', ') : '—'}</td>
+        <td style="text-align: right; white-space: nowrap;">${isAdmin ? `<button class="btn-icon" title="Nomini o'zgartirish" data-attr-rename="${a.id}">✏️</button> <button class="btn-icon delete" title="MoySklad'dan o'chirish" data-attr-del="${a.id}">🗑️</button>` : ''}</td>
+      </tr>`).join('') : '<tr><td colspan="5" style="color: var(--text-dim);">MoySklad\'da доп. поля yo\'q</td></tr>';
+
+    // Bog'lanish jadvali
+    const options = (sel) => `<option value="">— yozilmaydi —</option>` + d.attributes.map(a => `<option value="${a.id}" ${a.id === sel ? 'selected' : ''}>${this.esc(a.name)} (${this.typeLabel(a.type)})</option>`).join('');
+    document.getElementById('attributes-map-tbody').innerHTML = d.app_fields.map(f => {
+      const m = d.mapping[f.key] || {};
+      const missing = m.attr_id && !d.attributes.find(a => a.id === m.attr_id);
+      return `<tr>
+        <td>${this.esc(f.label)}</td>
+        <td><select class="form-control" data-map-attr="${f.key}" ${isAdmin ? '' : 'disabled'} style="height: 28px; padding: 0.1rem 0.3rem; font-size: 0.78rem;">${options(m.attr_id)}</select>${missing ? '<div style="color:#f87171;font-size:0.72rem;">MoySklad\'da topilmadi</div>' : ''}</td>
+        <td style="text-align: center;"><input type="checkbox" data-map-on="${f.key}" ${m.enabled ? 'checked' : ''} ${isAdmin ? '' : 'disabled'}></td>
+      </tr>`;
+    }).join('');
+
+    document.getElementById('attributes-create').style.display = isAdmin ? '' : 'none';
+    document.getElementById('btn-attributes-map-save').style.display = isAdmin ? '' : 'none';
+    const dictSel = document.getElementById('attr-new-dict');
+    if (dictSel) dictSel.innerHTML = `<option value="">— yangi spravochnik yaratish —</option>` + d.dictionaries.map(x => `<option value="${x.id}">${this.esc(x.name)}</option>`).join('');
+    this.bind();
+  },
+
+  bind() {
+    document.querySelectorAll('[data-attr-del]').forEach(btn => btn.onclick = async () => {
+      const id = btn.getAttribute('data-attr-del');
+      const a = this.data.attributes.find(x => x.id === id);
+      if (!confirm(`"${a?.name}" maydonini MoySklad'dan o'chirasizmi?\nBarcha tovarlardagi shu maydon qiymatlari yo'qoladi. Bu amalni qaytarib bo'lmaydi.`)) return;
+      let resp = await fetch(`/api/attributes/${id}`, { method: 'DELETE' });
+      let data = await resp.json();
+      if (resp.status === 409 && confirm(`${data.detail}\n\nBaribir o'chirilsinmi? (bog'lanish ham o'chadi)`)) {
+        resp = await fetch(`/api/attributes/${id}?force=1`, { method: 'DELETE' });
+        data = await resp.json();
+      }
+      showToast(resp.ok ? "🗑️ Maydon MoySklad'dan o'chirildi" : (data.detail || 'Xatolik'), resp.ok ? 'success' : 'error');
+      this.load();
+    });
+    document.querySelectorAll('[data-attr-rename]').forEach(btn => btn.onclick = async () => {
+      const id = btn.getAttribute('data-attr-rename');
+      const a = this.data.attributes.find(x => x.id === id);
+      const name = prompt("Maydonning yangi nomi (MoySklad'da o'zgaradi):", a?.name || '');
+      if (!name || name.trim() === a?.name) return;
+      const resp = await fetch(`/api/attributes/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name.trim() }) });
+      const data = await resp.json();
+      showToast(resp.ok ? '✏️ Nomi o\'zgartirildi' : (data.detail || 'Xatolik'), resp.ok ? 'success' : 'error');
+      this.load();
+    });
+    document.querySelectorAll('[data-attr-req]').forEach(cb => cb.onchange = async () => {
+      const resp = await fetch(`/api/attributes/${cb.getAttribute('data-attr-req')}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ required: cb.checked }) });
+      if (!resp.ok) { showToast((await resp.json()).detail || 'Xatolik', 'error'); cb.checked = !cb.checked; }
+      else this.load();
+    });
+  }
+};
+
+function setupAttributesUI() {
+  document.getElementById('btn-attributes-refresh')?.addEventListener('click', () => AttributesUI.load());
+  document.getElementById('attr-new-type')?.addEventListener('change', (e) => {
+    document.getElementById('attr-new-dict-wrap').style.display = e.target.value === 'customentity' ? '' : 'none';
+  });
+  document.getElementById('attr-new-dict')?.addEventListener('change', (e) => {
+    document.getElementById('attr-new-dict-name').style.display = e.target.value ? 'none' : '';
+  });
+  document.getElementById('btn-attr-create')?.addEventListener('click', async () => {
+    const name = document.getElementById('attr-new-name').value.trim();
+    const type = document.getElementById('attr-new-type').value;
+    const dictId = document.getElementById('attr-new-dict').value;
+    const dictName = document.getElementById('attr-new-dict-name').value.trim();
+    if (!name) return showToast('Maydon nomini kiriting', 'error');
+    if (type === 'customentity' && !dictId && !dictName) return showToast('Spravochnikni tanlang yoki yangi nom kiriting', 'error');
+    if (!confirm(`MoySklad'da "${name}" (${AttributesUI.typeLabel(type)}) maydoni yaratilsinmi?`)) return;
+    const resp = await fetch('/api/attributes', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, type, required: document.getElementById('attr-new-required').checked, dictionary_id: dictId || null, new_dictionary_name: dictId ? null : (dictName || name) })
+    });
+    const data = await resp.json();
+    if (!resp.ok) return showToast(data.detail || 'Xatolik', 'error');
+    showToast(`✅ "${name}" MoySklad'da yaratildi`, 'success');
+    document.getElementById('attr-new-name').value = '';
+    document.getElementById('attr-new-dict-name').value = '';
+    AttributesUI.data = data;
+    AttributesUI.render();
+  });
+  document.getElementById('btn-attributes-map-save')?.addEventListener('click', async () => {
+    const mapping = {};
+    document.querySelectorAll('[data-map-attr]').forEach(sel => {
+      const key = sel.getAttribute('data-map-attr');
+      mapping[key] = { attr_id: sel.value || null, enabled: document.querySelector(`[data-map-on="${key}"]`)?.checked };
+    });
+    const resp = await fetch('/api/attributes/map', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mapping }) });
+    const data = await resp.json();
+    if (!resp.ok) return showToast(data.detail || 'Xatolik', 'error');
+    showToast("✅ Bog'lanish saqlandi", 'success');
+    AttributesUI.load();
+  });
 }
 
 // Sozlamalarda artikul namunasi: razmer artikulga kirmaydi, faqat tovarlar sonini ko'paytiradi
