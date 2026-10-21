@@ -454,7 +454,7 @@ async def get_all_supplies(
                     continue
                 draft_rows.append({
                     "id": f"draft_{d.id}",
-                    "name": d.doc_number or f"0000{d.id}",
+                    "name": d.doc_number or f"Q-{d.id}",
                     "moment": d.updated_at.strftime("%Y-%m-%d %H:%M") if d.updated_at else datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
                     "agent_name": d.counterparty_name or "(Noma'lum)",
                     "store_name": d.store_name or "Основной склад",

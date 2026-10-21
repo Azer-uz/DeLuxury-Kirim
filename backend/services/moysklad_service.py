@@ -112,10 +112,20 @@ class MoySkladService:
         except MoySkladError as e:
             return {"status": "error", "message": f"MoySklad xatosi: {e}"}
 
+    async def allocate_supply_number(self) -> str:
+        """Yuborish lahzasida: MoySklad'dagi oxirgi raqamdan keyingi BO'SH raqam.
+        Kimdir MoySklad'ning o'zida raqam yaratgan yoki navbat buzilgan bo'lsa ham to'qnashuv bo'lmaydi."""
+        number = await self.get_next_supply_number()
+        for _ in range(50):
+            if not await self.supply_exists(number):
+                return number
+            number = f"{int(number) + 1:05d}"
+        raise MoySkladError("Bo'sh Приемка raqami topilmadi (50 ta ketma-ket band)")
+
     async def get_next_supply_number(self) -> str:
-        """Oxirgi Приемка raqamidan keyingi 5 xonali raqam (masalan 00042)"""
+        """Oxirgi Приемка raqamidan keyingi 5 xonali raqam (masalan 00042). Oxirgi 100 ta hujjat ko'riladi"""
         try:
-            data = await self._call("GET", "entity/supply", params={"order": "moment,desc", "limit": 30})
+            data = await self._call("GET", "entity/supply", params={"order": "moment,desc", "limit": 100})
             highest = 0
             for r in data.get("rows", []):
                 digits = "".join(ch for ch in (r.get("name") or "") if ch.isdigit())

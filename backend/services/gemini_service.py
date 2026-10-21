@@ -7,6 +7,13 @@ from typing import Dict, Any, List, Union
 from PIL import Image, ImageOps
 from backend.config import get_settings
 
+try:  # iPhone HEIC/HEIF rasmlari
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+    HEIF_OK = True
+except Exception:  # pragma: no cover
+    HEIF_OK = False
+
 logger = logging.getLogger(__name__)
 
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
@@ -40,6 +47,7 @@ class GeminiService:
             return buf.getvalue()
         except Exception as e:
             logger.warning(f"Image normalization skipped: {e}")
+            self.last_reason = f"Rasm formati o'qilmadi ({e.__class__.__name__}). JPG/PNG yuboring" + ("" if HEIF_OK else "; HEIC uchun serverda pillow-heif kerak")
             return image_bytes
 
     async def parse_invoice_image(
@@ -51,9 +59,11 @@ class GeminiService:
         """
         Parse waybill / invoice image (printed or handwritten) and extract structured header and line items.
         """
+        self.last_reason = ""
         if not self.api_key:
             logger.warning("Gemini API key is not configured.")
-            return {"kontragent": "", "phone": "", "date": "", "rows": []}
+            self.last_reason = "GEMINI_API_KEY sozlanmagan (.env)"
+            return {"kontragent": "", "phone": "", "date": "", "rows": [], "reason": self.last_reason}
 
         # Normalize orientation
         norm_bytes = self.normalize_image(image_bytes)
@@ -151,6 +161,7 @@ QOIDALAR:
         }
 
         # Model band bo'lsa (503) keyingisiga o'tamiz. Kalit URL'da emas, sarlavhada — loglarga tushmaydi
+        reasons: List[str] = []
         async with httpx.AsyncClient(timeout=120.0) as client:
             for model_name in GEMINI_MODELS:
                 try:
@@ -173,16 +184,29 @@ QOIDALAR:
                                     lines = lines[:-1]
                                 content_text = "\n".join(lines).strip()
 
-                            parsed = json.loads(content_text)
+                            try:
+                                parsed = json.loads(content_text)
+                            except json.JSONDecodeError:
+                                reasons.append(f"{model_name}: javob JSON emas")
+                                continue
                             if isinstance(parsed, dict):
+                                parsed.setdefault("rows", [])
+                                parsed["model"] = model_name
+                                if not parsed["rows"]:
+                                    parsed["reason"] = "Model jadvalda tovar qatori topmadi — rasm tiniq va to'liq emas yoki jadval kadrga sig'magan"
                                 return parsed
                             elif isinstance(parsed, list):
-                                return {"kontragent": "", "phone": "", "date": "", "rows": parsed}
+                                return {"kontragent": "", "phone": "", "date": "", "rows": parsed, "model": model_name}
+                        reasons.append(f"{model_name}: bo'sh javob")
                     else:
-                        logger.warning(f"Model {model_name} returned status {resp.status_code}, trying next model...")
+                        short = resp.text[:160].replace("\n", " ")
+                        logger.warning(f"Model {model_name} returned status {resp.status_code}: {short}")
+                        reasons.append(f"{model_name}: HTTP {resp.status_code}" + (" (rasm formati/hajmi qabul qilinmadi)" if resp.status_code == 400 else " (band, keyinroq)" if resp.status_code in (429, 503) else ""))
                         continue
                 except Exception as e:
                     logger.warning(f"Error calling {model_name}: {e}")
+                    reasons.append(f"{model_name}: {e.__class__.__name__}")
                     continue
 
-        return {"kontragent": "", "phone": "", "date": "", "rows": []}
+        self.last_reason = (self.last_reason + "; " if self.last_reason else "") + " | ".join(reasons)
+        return {"kontragent": "", "phone": "", "date": "", "rows": [], "reason": self.last_reason}

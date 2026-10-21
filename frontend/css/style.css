@@ -3200,3 +3200,30 @@ body.theme-light .color-no-match {
     padding: 0.25rem 0.5rem !important;
   }
 }
+
+/* ===== Qator belgilash, ommaviy amallar, shubhali qiymatlar, AI lightbox (v3.3) ===== */
+.excel-table td.cell-sel { width: 34px; text-align: center; background-color: rgba(14, 21, 38, 0.6); }
+.row-check { width: 15px; height: 15px; cursor: pointer; accent-color: #38bdf8; }
+.excel-table tr.row-selected td { background-color: rgba(56, 189, 248, 0.12) !important; }
+.excel-table tr.row-selected td.cell-num { color: #38bdf8; }
+
+.bulk-bar { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; padding: 0.45rem 0.75rem; margin-bottom: 0.5rem;
+  background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: var(--radius-md); }
+.bulk-count { font-weight: 800; color: #38bdf8; font-size: 0.82rem; margin-right: 0.3rem; white-space: nowrap; }
+.bulk-sep { width: 1px; height: 22px; background: var(--border-subtle); margin: 0 0.2rem; }
+.bulk-select { height: 30px; padding: 0.1rem 0.4rem; font-size: 0.78rem; width: auto; }
+
+.cell-suspect { background-color: rgba(234, 179, 8, 0.22) !important; border: 1px solid rgba(234, 179, 8, 0.7) !important; }
+.excel-table tr.row-suspect td.cell-num { color: #eab308; font-weight: 800; }
+.excel-table tr.row-suspect td.cell-num::after { content: " ⚠"; font-size: 0.7rem; }
+.suspect-badge { display: inline-flex; align-items: center; gap: 0.3rem; height: 34px; padding: 0.25rem 0.7rem; font-size: 0.78rem; font-weight: 800;
+  color: #eab308; background: rgba(234, 179, 8, 0.12); border: 1px solid rgba(234, 179, 8, 0.5); border-radius: var(--radius-sm); cursor: pointer; font-family: inherit; white-space: nowrap; }
+.suspect-badge.active { background: rgba(234, 179, 8, 0.3); }
+body.theme-light .cell-suspect { background-color: rgba(234, 179, 8, 0.28) !important; }
+
+.ai-lightbox { display: none; position: fixed; inset: 0; z-index: 3000; background: rgba(2, 6, 23, 0.96); flex-direction: column; }
+.ai-lightbox.active { display: flex; }
+.ai-lightbox-bar { display: flex; align-items: center; gap: 0.4rem; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border-subtle); background: var(--bg-card); }
+.ai-lightbox-stage { flex: 1; overflow: hidden; position: relative; cursor: grab; display: flex; align-items: center; justify-content: center; }
+.ai-lightbox-stage.dragging { cursor: grabbing; }
+.ai-lightbox-stage img { position: absolute; left: 50%; top: 50%; transform-origin: center center; user-select: none; -webkit-user-drag: none; max-width: none; }

@@ -522,8 +522,11 @@
               
               <!-- Приемка № -->
               <div class="header-field-stacked">
-                <label class="header-field-label">Приемка №</label>
-                <input type="text" class="form-control" id="header-doc-number" placeholder="00036" style="width: 82px; height: 32px; padding: 0.2rem 0.4rem; font-family: 'JetBrains Mono', monospace; font-weight: 700; color: #fbbf24; font-size: 0.82rem; text-align: center;">
+                <label class="header-field-label">Приемка № <span id="doc-number-mode" style="color: #38bdf8;">avto</span></label>
+                <div style="display: flex; gap: 0.2rem; align-items: center;">
+                  <input type="text" class="form-control" id="header-doc-number" placeholder="avto" readonly title="Raqam yuborish lahzasida MoySklad'dagi oxirgi bo'sh raqamdan beriladi" style="width: 82px; height: 32px; padding: 0.2rem 0.4rem; font-family: 'JetBrains Mono', monospace; font-weight: 700; color: #fbbf24; font-size: 0.82rem; text-align: center; opacity: .85;">
+                  <button type="button" class="btn btn-secondary" id="btn-doc-number-manual" title="Raqamni qo'lda kiritish (odatda kerak emas)" style="width: 32px; height: 32px; padding: 0; font-size: 0.85rem;">✏️</button>
+                </div>
               </div>
 
               <!-- Sana -->
@@ -588,15 +591,52 @@
               <button class="btn btn-ai" id="btn-open-ai-modal" style="height: 34px; padding: 0.25rem 0.75rem; font-size: 0.78rem; font-weight: 700; white-space: nowrap;">
                 <span>✨</span> AI Rasm
               </button>
+              <button class="btn btn-secondary" id="btn-undo" disabled style="height: 34px; padding: 0.25rem 0.65rem; font-size: 0.78rem; white-space: nowrap;" title="Oxirgi amalni bekor qilish (Ctrl+Z)">
+                <span>↶</span> Bekor
+              </button>
               <button class="btn btn-secondary" id="btn-clear-grid" style="height: 34px; padding: 0.25rem 0.65rem; font-size: 0.78rem; white-space: nowrap;" title="Jadvalni tozalash">
                 <span>🗑️</span> Tozalash
               </button>
+              <button class="suspect-badge" id="suspect-badge" style="display: none;" title="Shubhali qiymatlar sariq belgilangan. Bosing — faqat shubhali qatorlar ko'rsatiladi"></button>
               <div class="auto-save-indicator" id="auto-save-badge" style="display: none;">
                 <span id="save-status"></span>
               </div>
             </div>
 
           </div>
+        </div>
+
+        <!-- 1b. Ommaviy amallar paneli (qatorlar belgilanganda chiqadi) -->
+        <div class="bulk-bar" id="bulk-bar" style="display: none;">
+          <span class="bulk-count" id="bulk-count">0 ta qator tanlandi</span>
+          <button class="btn btn-secondary btn-sm" id="btn-bulk-delete" title="Tanlanganlarni o'chirish (Ctrl+Delete)">🗑️ O'chirish</button>
+          <span class="bulk-sep"></span>
+          <select class="form-control bulk-select" id="bulk-price-which" title="Qaysi narx">
+            <option value="both">Ikkala narx</option>
+            <option value="buy">Tan narx</option>
+            <option value="sale">Sotuv narxi</option>
+          </select>
+          <button class="btn btn-secondary btn-sm" id="btn-bulk-x1000" title="Narxga 3 ta nol qo'shish">⚡ ×1000</button>
+          <button class="btn btn-secondary btn-sm" id="btn-bulk-d1000" title="Narxdan 3 ta nolni olib tashlash">÷1000</button>
+          <button class="btn btn-secondary btn-sm" id="btn-bulk-markup" title="Ustama % qo'yish — sotuv narxi qayta hisoblanadi">% Ustama</button>
+          <span class="bulk-sep"></span>
+          <select class="form-control bulk-select" id="bulk-field" title="Qaysi maydonni to'ldirish">
+            <option value="brand">Бренд</option>
+            <option value="collection">Коллекция</option>
+            <option value="season">Сезон</option>
+            <option value="country">Страна</option>
+            <option value="product_type">Вид товара</option>
+            <option value="size">Размер</option>
+            <option value="description">Описание</option>
+            <option value="factory_code">Код модели</option>
+            <option value="quantity">Количество</option>
+            <option value="color">Цвет (qo'shish)</option>
+          </select>
+          <input type="text" class="form-control bulk-select" id="bulk-value" list="dl-brands" placeholder="qiymat..." style="width: 150px;" autocomplete="off">
+          <button class="btn btn-secondary btn-sm" id="btn-bulk-fill" title="Tanlangan qatorlarga shu qiymatni yozish">✔ To'ldirish</button>
+          <span class="bulk-sep"></span>
+          <button class="btn btn-secondary btn-sm" id="btn-bulk-dup" title="Tanlanganlardan nusxa">📑 Nusxa</button>
+          <button class="btn btn-secondary btn-sm" id="btn-bulk-clear-sel" title="Belgilashni olib tashlash (Esc)">✕ Tanlovni bekor</button>
         </div>
 
         <!-- 2. Grid Table (Starts immediately at top) -->
@@ -606,6 +646,7 @@
               <thead>
                 <tr>
                   <th style="width: 40px; text-align: center;">№</th>
+                  <th style="width: 34px; text-align: center;" title="Hammasini belgilash"><input type="checkbox" id="grid-check-all" class="row-check"></th>
                   <th style="min-width: 120px;">Страна (Mamlakat)</th>
                   <th style="min-width: 170px;">Вид товара *</th>
                   <th class="col-auto" style="min-width: 150px;">Категория (Auto)</th>
@@ -1040,14 +1081,19 @@
 
         <div class="ai-preview-zone" id="ai-preview-zone" style="display: none;">
           <div style="display: flex; gap: 1rem; align-items: center; margin-bottom: 1rem;">
-            <img id="ai-preview-img" style="max-height: 120px; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
+            <img id="ai-preview-img" title="Kattalashtirish uchun bosing" style="max-height: 180px; max-width: 45%; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); cursor: zoom-in;">
             <div>
               <div id="ai-filename" style="font-weight: 600;"></div>
               <div id="ai-filesize" style="font-size: 0.8rem; color: var(--text-muted);"></div>
               <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem; flex-wrap: wrap;">
-                <button class="btn btn-secondary btn-sm" id="btn-ai-rotate" title="Rasmni 90 gradus burish (agar rasm yonbosh tushgan bo'lsa)">🔄 90° Burish</button>
-                <button class="btn btn-secondary btn-sm" id="btn-ai-reselect">Boshqa rasm tanlash</button>
+                <button class="btn btn-secondary btn-sm" id="btn-ai-rotate-left" title="Chapga 90° burish">⟲ Chapga</button>
+                <button class="btn btn-secondary btn-sm" id="btn-ai-rotate" title="O'ngga 90° burish">⟳ O'ngga</button>
+                <button class="btn btn-secondary btn-sm" id="btn-ai-zoom" title="Kattalashtirib ko'rish">🔍 Kattalashtirish</button>
+                <button class="btn btn-secondary btn-sm" id="btn-ai-reselect">Boshqa rasm</button>
               </div>
+              <label style="display: flex; align-items: center; gap: 0.4rem; margin-top: 0.6rem; font-size: 0.8rem; color: var(--text-muted); cursor: pointer;">
+                <input type="checkbox" id="ai-chk-split" style="accent-color: #38bdf8;"> Uzun nakladnoy — 2 bo'lakda o'qish (ko'p qatorli jadval uchun)
+              </label>
             </div>
           </div>
         </div>
@@ -1092,6 +1138,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" id="btn-cancel-ai">Bekor qilish</button>
+        <button class="btn btn-secondary" id="btn-ai-rescan" style="display: none;" title="Rasmga qaytib qayta o'qish (burish yoki boshqa rasm)">🔁 Qayta o'qish</button>
         <button class="btn btn-gold" id="btn-apply-ai-rows" style="display: none;">
           ✅ Jadvalga o'tkazish
         </button>
@@ -1100,6 +1147,22 @@
         </button>
       </div>
     </div>
+  </div>
+
+  <!-- AI RASM: TO'LIQ EKRAN KO'RISH (zoom, surish, burish) -->
+  <div class="ai-lightbox" id="ai-lightbox">
+    <div class="ai-lightbox-bar">
+      <button class="btn btn-secondary btn-sm" id="lb-rotate-left">⟲ Chapga</button>
+      <button class="btn btn-secondary btn-sm" id="lb-rotate-right">⟳ O'ngga</button>
+      <button class="btn btn-secondary btn-sm" id="lb-zoom-out">−</button>
+      <span id="lb-zoom-label" style="font-size: 0.8rem; min-width: 48px; text-align: center;">100%</span>
+      <button class="btn btn-secondary btn-sm" id="lb-zoom-in">+</button>
+      <button class="btn btn-secondary btn-sm" id="lb-zoom-fit">Moslash</button>
+      <span style="flex: 1;"></span>
+      <span style="font-size: 0.75rem; color: var(--text-muted);">G'ildirak — zoom, sichqoncha bilan surish, Esc — yopish</span>
+      <button class="btn-icon" id="lb-close">✕</button>
+    </div>
+    <div class="ai-lightbox-stage" id="lb-stage"><img id="lb-img" alt="Nakladnoy"></div>
   </div>
 
   <!-- MODAL: PRE-FLIGHT VALIDATION & CONFIRMATION -->
@@ -1145,12 +1208,13 @@
   <!-- Scripts -->
   <script src="js/auth.js?v=1.0"></script>
   <script src="js/dashboard.js"></script>
-  <script src="js/supplies.js?v=2.8"></script>
+  <script src="js/supplies.js?v=2.9"></script>
   <script src="js/references.js?v=2.9"></script>
-  <script src="js/grid.js?v=3.0"></script>
-  <script src="js/ai-scanner.js?v=3.2"></script>
+  <script src="js/grid.js?v=3.1"></script>
+  <script src="js/grid-extras.js?v=1.0"></script>
+  <script src="js/ai-scanner.js?v=4.0"></script>
   <script src="js/history.js"></script>
-  <script src="js/app.js?v=3.2"></script>
+  <script src="js/app.js?v=3.3"></script>
 
 </body>
 </html>

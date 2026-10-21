@@ -43,7 +43,7 @@ def get_all_drafts(db: Session = Depends(get_db)):
         results.append({
             "id": d.id,
             "draft_key": d.draft_key,
-            "doc_number": d.doc_number or f"0000{d.id}",
+            "doc_number": d.doc_number or f"Q-{d.id}",
             "date": d.date or (d.updated_at.strftime("%Y-%m-%d") if d.updated_at else ""),
             "counterparty_name": d.counterparty_name or "(Noma'lum)",
             "store_name": d.store_name or "Основной склад",
@@ -335,15 +335,23 @@ async def submit_to_moysklad(data: Dict[str, Any], request: Request, db: Session
     if errors:
         raise HTTPException(status_code=400, detail={"message": "Hujjatda xatoliklar mavjud!", "errors": errors})
 
-    doc_number = _txt(header.get("doc_number")) or f"PRX-{datetime.datetime.now().strftime('%y%m%d-%H%M')}"
+    # Hujjat raqami: standart — faqat yuborish lahzasida MoySklad'dagi oxirgi raqamdan keyin beriladi (auto).
+    # Qo'lda raqam faqat foydalanuvchi ataylab yozganda (header.manual_number=true).
+    manual_number = bool(header.get("manual_number")) and bool(_txt(header.get("doc_number")))
+    doc_number = _txt(header.get("doc_number")) if manual_number else ""
     currency = _txt(header.get("currency")) or "UZS"
     rate = _num(header.get("rate"), 1.0) if currency == "USD" else 1.0
-    scope = f"draft{header.get('draft_id')}" if header.get("draft_id") else f"doc{doc_number}"
+    if header.get("draft_id"):
+        scope = f"draft{header.get('draft_id')}"
+    elif manual_number:
+        scope = f"doc{doc_number}"
+    else:
+        scope = f"adhoc{int(time.time())}"
 
     # 1. Model raqamlari: MoySklad'dagi eng katta raqamdan keyin, qoralama bo'yicha doimiy
     try:
         # Raqam ajratishdan oldin — allaqachon yuborilgan hujjat qayta yuborilsa raqamlar behuda sarflanmasin
-        if await ms_service.supply_exists(doc_number):
+        if manual_number and await ms_service.supply_exists(doc_number):
             raise HTTPException(status_code=409, detail=f"MoySklad'da №{doc_number} raqamli Приемка allaqachon mavjud. Hujjat raqamini o'zgartiring.")
         ms_max = await ms_service.get_max_model_number()
         code_stats = await ms_service.get_code_stats()
@@ -403,7 +411,14 @@ async def submit_to_moysklad(data: Dict[str, Any], request: Request, db: Session
     total_sum_sale = round(sum(it["sum_sale"] for it in items), 2)
     total_qty = sum(it["quantity"] for it in items)
 
-    # 2. Hujjat yozuvi (tarix uchun)
+    # 2. Hujjat raqami — eng oxirgi lahzada, MoySklad'dagi bo'sh raqam (auto rejim)
+    if not manual_number:
+        try:
+            doc_number = await ms_service.allocate_supply_number()
+        except MoySkladError as e:
+            raise HTTPException(status_code=502, detail=f"Hujjat raqamini olib bo'lmadi: {e}")
+
+    # 3. Hujjat yozuvi (tarix uchun)
     new_doc = PrixodDocument(
         doc_number=doc_number,
         counterparty_name=_txt(header.get("counterparty_name")),
@@ -484,6 +499,8 @@ async def submit_to_moysklad(data: Dict[str, Any], request: Request, db: Session
         "document_id": new_doc.id,
         "moysklad_document_id": ms_result.get("document_id"),
         "moysklad_document_name": ms_result.get("document_name"),
+        "doc_number": doc_number,
+        "auto_number": not manual_number,
         "moysklad_url": ms_result.get("moysklad_url"),
         "total_items": len(items),
         "total_sum_buy": total_sum_buy,

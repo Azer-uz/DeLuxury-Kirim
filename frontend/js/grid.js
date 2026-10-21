@@ -23,7 +23,7 @@ const Grid = {
     this.setupKeyboardEvents();
     this.setupAutoSave();
     this.setupHeaderActions();
-    this.setupMultiColorModalEvents();
+    if (typeof this.setupMultiColorModalEvents === 'function') this.setupMultiColorModalEvents();
   },
 
   async fetchBaseCounter() {
@@ -1118,7 +1118,8 @@ const Grid = {
     try {
       const headerData = {
         date: document.getElementById('header-date')?.value,
-        doc_number: document.getElementById('header-doc-number')?.value,
+        doc_number: this.manualDocNumber ? this.docNumberValue() : '',
+        manual_number: !!this.manualDocNumber,
         store_id: document.getElementById('header-store')?.value,
         store_name: document.getElementById('header-store')?.selectedOptions[0]?.text || '',
         counterparty_id: document.getElementById('header-counterparty')?.value,
@@ -1169,7 +1170,8 @@ const Grid = {
         }
         if (draft.header) {
           if (draft.header.date) document.getElementById('header-date').value = draft.header.date;
-          if (draft.header.doc_number) document.getElementById('header-doc-number').value = draft.header.doc_number;
+          if (draft.header.manual_number && draft.header.doc_number) this.setDocNumberMode(true, String(draft.header.doc_number).replace(/^≈/, ''));
+          else this.setDocNumberMode(false);
           if (draft.header.store_id) document.getElementById('header-store').value = draft.header.store_id;
           if (draft.header.counterparty_id) document.getElementById('header-counterparty').value = draft.header.counterparty_id;
           const cur = (draft.header.currency === 'USD' && References.settings.usd_enabled) ? 'USD' : 'UZS';

@@ -737,7 +737,7 @@ const SuppliesList = {
           const nextData = await nextNumResp.json();
           const docInput = document.getElementById('header-doc-number');
           if (docInput && nextData.next_number) {
-            docInput.value = nextData.next_number;
+            docInput.value = nextData.next_number; if (typeof Grid !== 'undefined' && Grid.setDocNumberMode) Grid.setDocNumberMode(false);
           }
         }
       } catch (e) {
@@ -786,9 +786,16 @@ const SuppliesList = {
           const dateEl = document.getElementById('header-date');
           if (dateEl) dateEl.value = data.header.date;
         }
-        if (data.header.doc_number) {
-          const docEl = document.getElementById('header-doc-number');
-          if (docEl) docEl.value = data.header.doc_number;
+        if (data.header.manual_number && data.header.doc_number) {
+          Grid.setDocNumberMode(true, String(data.header.doc_number).replace(/^≈/, ''));
+        } else {
+          // Avto rejim: taxminiy raqam ko'rsatiladi, haqiqiysi yuborishda MoySklad navbati bo'yicha beriladi
+          try {
+            const nn = await fetch('/api/moysklad/next-doc-number');
+            const docEl = document.getElementById('header-doc-number');
+            if (nn.ok && docEl) docEl.value = (await nn.json()).next_number || '';
+          } catch (_) {}
+          Grid.setDocNumberMode(false);
         }
         if (data.header.store_id) {
           const stEl = document.getElementById('header-store');

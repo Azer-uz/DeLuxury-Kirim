@@ -140,7 +140,7 @@ async function loadMoySkladMetadata(options = {}) {
         const nextData = await nextNumResp.json();
         const docInput = document.getElementById('header-doc-number');
         if (docInput && nextData.next_number) {
-          docInput.value = nextData.next_number;
+          docInput.value = nextData.next_number; if (typeof Grid !== 'undefined' && Grid.setDocNumberMode) Grid.setDocNumberMode(false);
         }
       }
     }
@@ -426,7 +426,10 @@ function setupMainButtons() {
     const modalBody = document.getElementById('submit-modal-body');
     const storeName = document.getElementById('header-store')?.selectedOptions[0]?.text || 'Asosiy Ombor';
     const cpName = document.getElementById('header-counterparty')?.selectedOptions[0]?.text || 'Noma\'lum';
-    const docNumber = document.getElementById('header-doc-number')?.value || '00035';
+    const docNumber = Grid.manualDocNumber
+      ? `${Grid.docNumberValue()} <small style="color: var(--text-muted);">(qo'lda)</small>`
+      : `<span style="color: #38bdf8;">yuborishda beriladi</span> <small style="color: var(--text-muted);">(taxminan ${Grid.docNumberValue() || '—'})</small>`;
+    const suspects = Grid.suspectSummary ? Grid.suspectSummary() : [];
 
     let totalQty = 0;
     let totalSumBuy = 0;
@@ -462,6 +465,13 @@ function setupMainButtons() {
             <div>💵 Tan narx (Kirim): <b>${Grid.formatMoney(totalSumBuy)}</b></div>
             <div>🏷️ Sotish summasi: <b style="color: #38bdf8;">${Grid.formatMoney(totalSumSale)}</b></div>
           </div>
+          ${suspects.length ? `
+          <div style="background: rgba(234, 179, 8, 0.12); border: 1px solid rgba(234, 179, 8, 0.5); padding: 0.75rem 1rem; border-radius: var(--radius-md);">
+            <h4 style="color: #eab308; margin-bottom: 0.4rem; font-size: 0.9rem;">⚠️ ${suspects.length} ta shubhali qiymat (yuborishga to'sqinlik qilmaydi, lekin tekshiring):</h4>
+            <ul style="padding-left: 1.2rem; font-size: 0.8rem; color: #fde68a; max-height: 150px; overflow-y: auto;">
+              ${suspects.slice(0, 40).map(s => `<li>${s.row}-qator: ${s.msg}</li>`).join('')}${suspects.length > 40 ? `<li>... yana ${suspects.length - 40} ta</li>` : ''}
+            </ul>
+          </div>` : ''}
           <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.5rem;">
             Tasdiqlasangiz: MoySklad'da mahsulotlar yaratiladi/bog'lanadi, ombor qoldig'iga kiritiladi (Приемка) va Telegram guruhiga bildirishnoma yuboriladi.
           </p>
@@ -521,7 +531,7 @@ function setupMainButtons() {
             MoySklad'da Приемка yaratildi!
           </h3>
           <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 1.5rem;">
-            Hujjat raqami: <b>${data.moysklad_document_name || data.document_id}</b> | Pozitsiyalar: <b>${data.total_items} ta</b>
+            Hujjat raqami: <b style="color: #fbbf24;">${data.moysklad_document_name || data.doc_number || data.document_id}</b>${data.auto_number ? ' <small>(MoySklad navbati bo\'yicha)</small>' : ''} | Pozitsiyalar: <b>${data.total_items} ta</b>
           </p>
           <div style="display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;">
             ${data.moysklad_url ? `<a href="${data.moysklad_url}" target="_blank" class="btn btn-gold btn-lg" style="text-decoration: none;">🔗 MoySklad'da ochish</a>` : ''}
@@ -549,7 +559,7 @@ function setupMainButtons() {
           const nextData = await nextNumResp.json();
           const docInput = document.getElementById('header-doc-number');
           if (docInput && nextData.next_number) {
-            docInput.value = nextData.next_number;
+            docInput.value = nextData.next_number; if (typeof Grid !== 'undefined' && Grid.setDocNumberMode) Grid.setDocNumberMode(false);
           }
         }
       } else {
@@ -586,7 +596,7 @@ function setupMainButtons() {
       const nextData = await nextNumResp.json();
       const docInput = document.getElementById('header-doc-number');
       if (docInput && nextData.next_number) {
-        docInput.value = nextData.next_number;
+        docInput.value = nextData.next_number; if (typeof Grid !== 'undefined' && Grid.setDocNumberMode) Grid.setDocNumberMode(false);
       }
     }
   });
@@ -823,7 +833,8 @@ function setupAdminDropdown() {
 function collectHeaderData() {
   const currency = Grid.getCurrency();
   return {
-    doc_number: document.getElementById('header-doc-number')?.value,
+    doc_number: Grid.manualDocNumber ? Grid.docNumberValue() : '',
+    manual_number: !!Grid.manualDocNumber,
     doc_date: document.getElementById('header-date')?.value,
     store_id: document.getElementById('header-store')?.value,
     store_name: document.getElementById('header-store')?.selectedOptions[0]?.text || '',

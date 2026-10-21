@@ -22,6 +22,8 @@ async def scan_invoice(
     contents = await file.read()
     if not contents:
         raise HTTPException(status_code=400, detail="Fayl bo'sh")
+    if len(contents) > 25 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Rasm 25 MB dan katta — telefonda kichikroq sifatda suratga oling")
 
     # Gather reference context to help Gemini normalize product names
     known_pts = [p.name for p in db.query(ProductType).order_by(ProductType.name).all()]
@@ -58,9 +60,11 @@ async def scan_invoice(
         extracted_rows = []
 
     if not extracted_rows:
+        reason = (ai_result.get("reason") if isinstance(ai_result, dict) else "") or ""
         return {
             "status": "warning",
-            "message": "AI rasmda tovar qatorlarini aniqlay olmadi yoki API xatosi yuz berdi. Iltimos, rasmni tiniqroq tushirib qayta urinib ko'ring.",
+            "message": "AI rasmda tovar qatorlarini aniqlay olmadi." + (f" Sabab: {reason}" if reason else " Rasmni tiniqroq tushirib qayta urinib ko'ring."),
+            "reason": reason,
             "rows": [],
             "kontragent": kontragent,
             "phone": phone,
