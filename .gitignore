@@ -21,3 +21,7 @@ temp/
 # IDE
 .vscode/
 .idea/
+
+# Runtime kesh va sinov fayllari
+cache/
+*.xlsx
