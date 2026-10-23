@@ -647,6 +647,11 @@ function setupQuickAddModals() {
       if (resp.ok && data.status === 'created') {
         modalCp?.classList.remove('active');
         const createdId = data.counterparty?.id;
+        // Ro'yxat keshdan chiziladi — yangi kontragentni keshga qo'shamiz, aks holda u tanlanmay qoladi
+        if (createdId) {
+          _cachedMsCounterparties = (_cachedMsCounterparties || []).filter(c => c.id !== createdId);
+          _cachedMsCounterparties.unshift({ id: createdId, name: data.counterparty.name || name, phone: phone || "" });
+        }
         await reloadCounterpartiesDropdown(createdId);
         const headerCp = document.getElementById('header-counterparty');
         if (headerCp && createdId) {
@@ -839,7 +844,7 @@ function collectHeaderData() {
     store_id: document.getElementById('header-store')?.value,
     store_name: document.getElementById('header-store')?.selectedOptions[0]?.text || '',
     counterparty_id: document.getElementById('header-counterparty')?.value,
-    counterparty_name: document.getElementById('header-counterparty')?.selectedOptions[0]?.text || '',
+    counterparty_name: document.getElementById('header-counterparty')?.value ? document.getElementById('header-counterparty').selectedOptions[0].text : '',
     currency: currency,
     rate: currency === 'USD' ? Grid.getRate() : null,
     draft_id: Grid.activeDraftId

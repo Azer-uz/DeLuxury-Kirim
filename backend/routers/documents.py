@@ -38,13 +38,13 @@ def get_all_drafts(db: Session = Depends(get_db)):
                 r_count = len(parsed.get("rows", []))
             except Exception:
                 r_count = 0
-        if r_count == 0 and not d.doc_number:
+        if not d.total_items:   # bo'sh jadval avtosaqlangan — ro'yxatda ko'rsatilmaydi
             continue
         results.append({
             "id": d.id,
             "draft_key": d.draft_key,
             "doc_number": d.doc_number or f"Q-{d.id}",
-            "date": d.date or (d.updated_at.strftime("%Y-%m-%d") if d.updated_at else ""),
+            "date": d.date or ((d.updated_at + datetime.timedelta(hours=5)).strftime("%Y-%m-%d") if d.updated_at else ""),
             "counterparty_name": d.counterparty_name or "(Noma'lum)",
             "store_name": d.store_name or "Основной склад",
             "currency": d.currency or "UZS",
@@ -52,7 +52,7 @@ def get_all_drafts(db: Session = Depends(get_db)):
             "total_qty": d.total_qty,
             "total_sum_buy": d.total_sum_buy,
             "total_sum_sale": d.total_sum_sale,
-            "updated_at": d.updated_at.strftime("%Y-%m-%d %H:%M") if d.updated_at else ""
+            "updated_at": (d.updated_at + datetime.timedelta(hours=5)).strftime("%Y-%m-%d %H:%M") if d.updated_at else ""
         })
     return results
 

@@ -27,6 +27,11 @@ class _GatewayResponse:
     def json(self) -> Any:
         return self._data
 
+def _local(dt: "datetime.datetime") -> "datetime.datetime":
+    """Bazadagi UTC vaqt → Toshkent (UTC+5). Aks holda tungi qoralamalar kechagi kunga tushadi"""
+    return dt + datetime.timedelta(hours=5)
+
+
 class GatewayClient:
     """httpx.AsyncClient o'rnida: dashboard so'rovlari ham Gateway limiti (parallel/tezlik, 429 retry) orqali o'tadi"""
     async def __aenter__(self):
@@ -450,12 +455,14 @@ async def get_all_supplies(
                     d_rows = d_obj.get("rows", [])
                 except Exception:
                     d_rows = []
-                if len(d_rows) == 0 and not d.doc_number:
+                # Faqat haqiqiy qatorli qoralamalar (bo'sh jadvalni avtosaqlash ro'yxatni ifloslamasin)
+                useful = [r for r in d_rows if (r.get("product_type") or "").strip() or float(r.get("price_buy") or 0) > 0]
+                if not useful:
                     continue
                 draft_rows.append({
                     "id": f"draft_{d.id}",
                     "name": d.doc_number or f"Q-{d.id}",
-                    "moment": d.updated_at.strftime("%Y-%m-%d %H:%M") if d.updated_at else datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    "moment": _local(d.updated_at).strftime("%Y-%m-%d %H:%M") if d.updated_at else _local(datetime.datetime.utcnow()).strftime("%Y-%m-%d %H:%M"),
                     "agent_name": d.counterparty_name or "(Noma'lum)",
                     "store_name": d.store_name or "Основной склад",
                     "sum": round(float(d.total_sum_buy or 0.0), 2),
@@ -464,7 +471,7 @@ async def get_all_supplies(
                     "status": "Qoralama",
                     "is_draft": True,
                     "draft_id": d.id,
-                    "items_count": len(d_rows),
+                    "items_count": len(useful),
                     "applicable": False,
                     "moysklad_url": ""
                 })

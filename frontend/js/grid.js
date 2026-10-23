@@ -1123,7 +1123,7 @@ const Grid = {
         store_id: document.getElementById('header-store')?.value,
         store_name: document.getElementById('header-store')?.selectedOptions[0]?.text || '',
         counterparty_id: document.getElementById('header-counterparty')?.value,
-        counterparty_name: document.getElementById('header-counterparty')?.selectedOptions[0]?.text || '',
+        counterparty_name: document.getElementById('header-counterparty')?.value ? document.getElementById('header-counterparty').selectedOptions[0].text : '',
         currency: this.getCurrency(),
         rate: this.getCurrency() === 'USD' ? this.getRate() : null,
         draft_id: this.activeDraftId

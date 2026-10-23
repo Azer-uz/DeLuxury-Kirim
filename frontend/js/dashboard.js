@@ -7,6 +7,7 @@ const Dashboard = {
   currentPeriod: 'all', // 'today', 'yesterday', 'week', 'month', 'all', 'custom'
   activeDate: new Date(),
   selectedCounterparties: new Set(), // Set of selected counterparty names
+  cpFilterCustom: false,             // foydalanuvchi filtrni o'zi tanlaganmi (yo'q bo'lsa — doim hammasi, yangi kontragentlar ham)
 
   // 7 MoySklad groups with radically distinct, high-contrast colors
   DEFAULT_CATEGORIES: [
@@ -83,9 +84,10 @@ const Dashboard = {
 
     if (!listContainer) return;
 
-    // Default: select all counterparties
-    if (this.selectedCounterparties.size === 0) {
-      allCps.forEach(c => this.selectedCounterparties.add(c.name));
+    // Default: select all counterparties (yangi paydo bo'lganlari ham, agar filtr qo'lda tanlanmagan bo'lsa)
+    if (!this.cpFilterCustom || this.selectedCounterparties.size === 0) {
+      this.selectedCounterparties = new Set(allCps.map(c => c.name));
+      this.cpFilterCustom = false;
     }
 
     this.renderCounterpartyList(allCps);
@@ -128,7 +130,7 @@ const Dashboard = {
     if (selectAllBtn) {
       selectAllBtn.onclick = (e) => {
         e.stopPropagation();
-        allCps.forEach(c => this.selectedCounterparties.add(c.name));
+        allCps.forEach(c => this.selectedCounterparties.add(c.name)); this.cpFilterCustom = false;
         this.renderCounterpartyList(allCps);
         this.updateCounterpartyLabel();
         this.applyDateFilter(this.currentPeriod);
@@ -139,7 +141,7 @@ const Dashboard = {
     if (clearAllBtn) {
       clearAllBtn.onclick = (e) => {
         e.stopPropagation();
-        this.selectedCounterparties.clear();
+        this.selectedCounterparties.clear(); this.cpFilterCustom = false;
         this.renderCounterpartyList(allCps);
         this.updateCounterpartyLabel();
         this.applyDateFilter(this.currentPeriod);
@@ -175,6 +177,7 @@ const Dashboard = {
         } else {
           this.selectedCounterparties.delete(val);
         }
+        this.cpFilterCustom = this.selectedCounterparties.size > 0 && this.selectedCounterparties.size < allCps.length;
         this.updateCounterpartyLabel();
         this.applyDateFilter(this.currentPeriod);
       };

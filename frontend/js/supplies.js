@@ -5,6 +5,7 @@ const SuppliesList = {
   total: 0,
   allCounterparties: [],    // Unique counterparties list
   selectedCounterparties: new Set(),
+  cpFilterCustom: false,   // foydalanuvchi kontragent filtrini o'zi tanlaganmi (yo'q bo'lsa — doim hammasi, yangilari ham)
   currentPeriod: 'all',     // 'today' | 'yesterday' | 'week' | 'month' | 'all' | 'stepped_day' | 'stepped_week' | 'stepped_month' | 'custom'
   activeDate: new Date(),
   UZ_MONTHS: ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun', 'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr'],
@@ -58,9 +59,10 @@ const SuppliesList = {
     });
     this.allCounterparties = Array.from(cpSet).sort((a, b) => a.localeCompare(b));
 
-    // Initially or if all were selected, select all
-    if (this.selectedCounterparties.size === 0 || this.selectedCounterparties.size >= this.allCounterparties.length) {
+    // Filtr tanlanmagan bo'lsa — hammasi (yangi paydo bo'lgan kontragent/qoralama ham yashirinmasin)
+    if (!this.cpFilterCustom || this.selectedCounterparties.size === 0) {
       this.selectedCounterparties = new Set(this.allCounterparties);
+      this.cpFilterCustom = false;
     }
 
     this.renderCounterpartyDropdownList(this.allCounterparties);
@@ -95,6 +97,7 @@ const SuppliesList = {
         } else {
           this.selectedCounterparties.delete(val);
         }
+        this.cpFilterCustom = this.selectedCounterparties.size > 0 && this.selectedCounterparties.size < this.allCounterparties.length;
         // If user unchecked everything, reset to all so table never empties unexpectedly
         if (this.selectedCounterparties.size === 0) {
           this.allCounterparties.forEach(name => this.selectedCounterparties.add(name));
@@ -636,7 +639,7 @@ const SuppliesList = {
     if (cpSelectAllBtn) {
       cpSelectAllBtn.onclick = (e) => {
         e.stopPropagation();
-        this.selectedCounterparties = new Set(this.allCounterparties);
+        this.selectedCounterparties = new Set(this.allCounterparties); this.cpFilterCustom = false;
         this.renderCounterpartyDropdownList(this.allCounterparties);
         this.updateCounterpartyLabel();
         this.applyFiltersAndSort();
@@ -646,7 +649,7 @@ const SuppliesList = {
     if (cpClearAllBtn) {
       cpClearAllBtn.onclick = (e) => {
         e.stopPropagation();
-        this.selectedCounterparties = new Set(this.allCounterparties);
+        this.selectedCounterparties = new Set(this.allCounterparties); this.cpFilterCustom = false;
         this.renderCounterpartyDropdownList(this.allCounterparties);
         this.updateCounterpartyLabel();
         this.applyFiltersAndSort();
@@ -715,7 +718,7 @@ const SuppliesList = {
     if (tabSuppliesBtn) tabSuppliesBtn.click();
 
     this.selectedCounterparties.clear();
-    this.selectedCounterparties.add(supplierName);
+    this.selectedCounterparties.add(supplierName); this.cpFilterCustom = true;
     this.updateCounterpartyLabel();
     this.applyFiltersAndSort();
   },

@@ -163,6 +163,8 @@
     const last = this.undoStack.pop();
     if (!last) { if (typeof showToast === 'function') showToast('Bekor qiladigan amal yo\'q', 'info'); return; }
     this.rows = last.rows;
+    this.rows.forEach(r => { delete r._sel; });   // qaytgan qatorlar belgilangan holda qolmasin
+    this.lastSelIdx = null;
     this.recalculateAll(); this.render(); this.triggerAutoSave();
     if (typeof showToast === 'function') showToast(`↶ Bekor qilindi: ${last.label}`, 'info');
   };

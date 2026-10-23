@@ -3227,3 +3227,19 @@ body.theme-light .cell-suspect { background-color: rgba(234, 179, 8, 0.28) !impo
 .ai-lightbox-stage { flex: 1; overflow: hidden; position: relative; cursor: grab; display: flex; align-items: center; justify-content: center; }
 .ai-lightbox-stage.dragging { cursor: grabbing; }
 .ai-lightbox-stage img { position: absolute; left: 50%; top: 50%; transform-origin: center center; user-select: none; -webkit-user-drag: none; max-width: none; }
+
+/* ── Planshet va kichik noutbuk (≤1280px): yuqori panel o'raladi, tugmalar bir-birini yopmaydi ── */
+@media (max-width: 1280px) {
+  .navbar { height: auto !important; min-height: 56px !important; flex-wrap: wrap !important; gap: 0.5rem !important; padding: 0.5rem 1rem !important; }
+  .brand-title { display: none !important; }
+  .nav-status { margin-left: auto !important; flex-wrap: wrap !important; gap: 0.4rem !important; }
+  .nav-tabs { order: 3 !important; width: 100% !important; overflow-x: auto !important; white-space: nowrap !important; scrollbar-width: none !important; }
+  .nav-tabs::-webkit-scrollbar { display: none !important; }
+  .nav-tab { flex-shrink: 0 !important; }
+}
+/* Keng jadvallar o'z ichida suriladi, sahifani kengaytirmaydi */
+.supplies-table-wrapper, .chart-card, .grid-container { min-width: 0; max-width: 100%; }
+#supplies-list-view, #supplies-grid-view, .tab-content { min-width: 0; max-width: 100%; }
+/* Bildirishnomalar telefonda ekrandan chiqmasin */
+#toast-container { max-width: calc(100vw - 24px) !important; }
+.toast { max-width: 100%; min-width: 0 !important; word-break: break-word; }
