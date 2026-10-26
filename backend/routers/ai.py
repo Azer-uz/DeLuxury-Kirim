@@ -4,7 +4,7 @@ from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import Dict, Any, List
 from backend.database import get_db
-from backend.models import ProductType, Brand, Season
+from backend.models import ProductType, Brand, Season, Color
 from backend.services.gemini_service import GeminiService
 from backend.services.articul_service import RefLookup, calculate_row_formulas
 from backend.services.app_settings import get_app_settings
@@ -323,6 +323,64 @@ async def scan_invoice(
     def _clean_color(c) -> str:
         return _split_color(c)[0]
 
+    # ---- Rang nomini spravochnikdagi eng yaqin rangga moslash ----
+    import difflib as _difflib
+    _TR = str.maketrans({"ı": "i", "ş": "s", "ç": "c", "ğ": "g", "ö": "o", "ü": "u", "ё": "е", "İ": "i"})
+
+    def _ncol(s: str) -> str:
+        return re.sub(r"[^a-z0-9а-я]", "", str(s or "").lower().translate(_TR))
+
+    COLOR_SYN = {  # og'zaki / qisqa yozuv -> spravochnikdagi so'z (turkcha)
+        "laci": "lacivert", "lacı": "lacivert", "lacivert": "lacivert", "kahva": "kahve", "kahve": "kahve", "kahv": "kahve",
+        "gri": "gri", "grı": "gri", "bordo": "bordo", "siyah": "siyah", "siya": "siyah", "beyaz": "beyaz", "bej": "bej", "beige": "bej",
+        "haki": "haki", "hakı": "haki", "indigo": "indigo", "indi": "indigo", "vizon": "vizon", "ekru": "ekru", "kiremit": "kiremit", "kirem": "kiremit", "kire": "kiremit",
+        "yesil": "yesil", "yeşil": "yesil", "mavi": "mavi", "taba": "taba", "antrasit": "antrasit", "fume": "fume", "petrol": "petrol", "sax": "sax",
+        "murdum": "murdum", "keten": "keten", "kirmizi": "kirmizi", "kırmızı": "kirmizi", "kum": "kum", "melan": "melan", "melanj": "melan", "natural": "natural",
+    }
+    _color_index: Dict[str, str] = {}
+    for _c in db.query(Color).all():
+        for _nm in (_c.name, _c.name_ru, _c.name_tr, _c.name_en):
+            if _nm:
+                _color_index.setdefault(_ncol(_nm), _c.name)
+
+    def _syn(word: str) -> str:
+        w = word.lower().translate(_TR)
+        if w in COLOR_SYN:
+            return COLOR_SYN[w]
+        for k in sorted(COLOR_SYN, key=len, reverse=True):
+            if len(k) >= 3 and (w.startswith(k) or (len(w) >= 3 and k.startswith(w))):
+                return COLOR_SYN[k]
+        return w
+
+    def match_color(raw: str) -> tuple:
+        """-> (spravochnikdagi nom, aniq_moslikmi). Topilmasa (raw, False)."""
+        raw = (raw or "").strip()
+        if not raw or not _color_index:
+            return raw, True
+        n = _ncol(raw)
+        if n in _color_index:
+            return _color_index[n], True
+        parts = [p for p in re.split(r"[\s.\-_/]+", raw.lower().translate(_TR)) if p]
+        # "klaci" -> k + laci ; "kkahva" -> k + kahva
+        if len(parts) == 1 and parts[0][:1] in ("k", "a", "p") and len(parts[0]) > 4 and _syn(parts[0][1:]) != parts[0][1:]:
+            parts = [parts[0][:1], parts[0][1:]]
+        cands = []
+        if parts and parts[0] in ("k", "a", "p") and len(parts) > 1:
+            cands.append(parts[0] + "." + "-".join(_syn(x) for x in parts[1:]))
+        cands.append("-".join(_syn(x) for x in parts))
+        cands.append(" ".join(_syn(x) for x in parts))
+        for c in cands:
+            if _ncol(c) in _color_index:
+                return _color_index[_ncol(c)], False
+        close = _difflib.get_close_matches(n, list(_color_index.keys()), n=1, cutoff=0.8)
+        if close:
+            return _color_index[close[0]], False
+        return raw, False
+
+    def _match_all(c: str) -> tuple:
+        name, exact = match_color(c)
+        return name, exact
+
     enriched_rows = []
     prev_src = None          # oldingi TO'LDIRILGAN qatorning manba qiymatlari (davom qatorlari uchun)
     model_group = 0
@@ -383,6 +441,15 @@ async def scan_invoice(
                     break
         if color_code_note and color_code_note.lower() not in (desc or "").lower():
             desc = (desc + " " + color_code_note).strip()   # "59#" -> Описание oxiriga
+        # Spravochnikka moslash: aniq bo'lmasa — taxmin (sariq belgi + sabab), umuman topilmasa — asl yozuv qoladi
+        ai_color_raw, color_guessed = "", False
+        if color:
+            matched, exact = match_color(color)
+            if matched != color:
+                ai_color_raw = color; color = matched; color_guessed = not exact
+            elif not exact and _ncol(color) not in _color_index:
+                color_guessed = True
+        colors_list = [match_color(c)[0] for c in colors_list]
         if color and color not in colors_list:
             colors_list = [color] + [c for c in colors_list if c != color]
         series = str(r.get("series") or "").strip()
@@ -426,6 +493,8 @@ async def scan_invoice(
             "description": desc,
             "color": color,
             "colors": colors_list or ([color] if color else []),
+            "ai_color_raw": ai_color_raw,             # nakladnoydagi asl yozuv (taxmin qilinganda)
+            "ai_color_guessed": color_guessed,
             "factory_code": factory_code,
             "model_code": factory_code,
             "quantity": qty,
@@ -440,7 +509,7 @@ async def scan_invoice(
             "ai_ambiguous": is_ambig,
             "ai_alternative": alt_type,
             "ai_confidence": confidence,
-            "ai_low_confidence_fields": low_fields
+            "ai_low_confidence_fields": (list(low_fields) + (["color"] if color_guessed and "color" not in low_fields else []))
         })
 
     return {

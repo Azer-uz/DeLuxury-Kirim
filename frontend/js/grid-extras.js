@@ -285,7 +285,10 @@
       rc.forEach(c => { if (colors.length && !colors.includes(String(c).toLowerCase())) out.push({ field: 'color', msg: `Rang "${c}" spravochnikda yo'q` }); });
     }
     if (r.ai_generated && (parseFloat(r.ai_confidence) || 1) < S.ai_conf_min) out.push({ field: 'product_type', msg: `AI ishonchi past (${Math.round((r.ai_confidence || 0) * 100)}%)` });
-    (r.ai_low_confidence_fields || []).forEach(f => out.push({ field: f, msg: 'AI bu maydonga ishonchi kam' }));
+    (r.ai_low_confidence_fields || []).forEach(f => {
+      if (f === 'color' && r.ai_color_raw) out.push({ field: 'color', msg: `AI rangni taxmin qildi: nakladnoyda "${r.ai_color_raw}" → "${r.color}" — tekshiring` });
+      else out.push({ field: f, msg: 'AI bu maydonga ishonchi kam' });
+    });
 
     const map = dupMap || this.duplicateMap();
     const key = this.rowDupKey(r);
