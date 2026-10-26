@@ -238,7 +238,7 @@ const RefEdit = {
       const body = {}; m.querySelectorAll('[data-f]').forEach(i => { body[i.dataset.f] = i.value.trim(); });
       const res = await fetch(k.url(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const d = await res.json().catch(() => ({}));
-      if (!res.ok) return showToast(d.detail || 'Saqlab bo\'lmadi', 'error');
+      if (!res.ok) return showToast(d.detail || 'Saqlab bo\'lmadi', res.status === 409 ? 'warning' : 'error');
       m.classList.remove('active'); await References.init(); renderReferencesUI(refreshTab); showToast('Saqlandi', 'success');
     };
     m.classList.add('active');
@@ -337,7 +337,7 @@ async function renderMsDictsSubtab(container) {
     const r = await fetch(`/api/references/moysklad-dict/${MsDicts.current}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
     const x = await r.json().catch(() => ({}));
     if (!r.ok) return showToast(x.detail || 'Qo\'shilmadi', 'error');
-    inp.value = ''; showToast(x.status === 'exists' ? 'Bunday qiymat allaqachon bor' : 'MoySklad\'ga qo\'shildi', 'success'); loadMsDictValues();
+    inp.value = ''; showToast('MoySklad\'ga qo\'shildi', 'success'); loadMsDictValues();
   });
   document.getElementById('msdict-new')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('msdict-add').click(); });
   loadMsDictValues();
@@ -640,11 +640,11 @@ function renderSeasonsSubtab(container) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ collection: col, code: cod })
     });
-    if (res.ok) {
-      await References.init();
-      renderReferencesUI('ref-seasons');
-      showToast("Mavsum kodi saqlandi!", "success");
-    }
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) return showToast(d.detail || "Qo'shib bo'lmadi", res.status === 409 ? 'warning' : 'error');
+    await References.init();
+    renderReferencesUI('ref-seasons');
+    showToast("Mavsum kodi saqlandi!", "success");
   });
 }
 
@@ -690,11 +690,11 @@ function renderSeasonTypesSubtab(container) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name })
     });
-    if (res.ok) {
-      await References.init();
-      renderReferencesUI('ref-season-types');
-      showToast("Sezon muvaffaqiyatli qo'shildi!", "success");
-    }
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) return showToast(d.detail || "Qo'shib bo'lmadi", res.status === 409 ? 'warning' : 'error');
+    await References.init();
+    renderReferencesUI('ref-season-types');
+    showToast("Sezon muvaffaqiyatli qo'shildi!", "success");
   });
 }
 
@@ -742,11 +742,11 @@ function renderSizesSubtab(container) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name })
     });
-    if (res.ok) {
-      await References.init();
-      renderReferencesUI('ref-sizes');
-      showToast("Razmer muvaffaqiyatli qo'shildi!", "success");
-    }
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) return showToast(d.detail || "Qo'shib bo'lmadi", res.status === 409 ? 'warning' : 'error');
+    await References.init();
+    renderReferencesUI('ref-sizes');
+    showToast("Razmer muvaffaqiyatli qo'shildi!", "success");
   });
 }
 
@@ -794,11 +794,11 @@ function renderBrandsSubtab(container) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name })
     });
-    if (res.ok) {
-      await References.init();
-      renderReferencesUI('ref-brands');
-      showToast("Brend muvaffaqiyatli qo'shildi!", "success");
-    }
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) return showToast(d.detail || "Qo'shib bo'lmadi", res.status === 409 ? 'warning' : 'error');
+    await References.init();
+    renderReferencesUI('ref-brands');
+    showToast("Brend muvaffaqiyatli qo'shildi!", "success");
   });
 }
 
@@ -898,7 +898,7 @@ function renderColorsSubtab(container) {
       });
       const data = await res.json();
       if (!res.ok) {
-        alert(data.detail || "Rang qo'shishda xatolik yuz berdi!");
+        showToast(data.detail || "Rang qo'shishda xatolik yuz berdi!", res.status === 409 ? 'warning' : 'error');
         return;
       }
       await References.init();
@@ -1002,11 +1002,11 @@ function renderCountriesSubtab(container) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name })
     });
-    if (res.ok) {
-      await References.init();
-      renderReferencesUI('ref-countries');
-      showToast("Mamlakat muvaffaqiyatli qo'shildi!", "success");
-    }
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) return showToast(d.detail || "Qo'shib bo'lmadi", res.status === 409 ? 'warning' : 'error');
+    await References.init();
+    renderReferencesUI('ref-countries');
+    showToast("Mamlakat muvaffaqiyatli qo'shildi!", "success");
   });
 }
 

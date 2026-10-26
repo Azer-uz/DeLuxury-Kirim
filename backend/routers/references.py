@@ -108,8 +108,9 @@ def add_or_update_product_type(data: Dict[str, Any], db: Session = Depends(get_d
     existing = None
     if pt_id:
         existing = db.query(ProductType).filter(ProductType.id == pt_id).first()
-    if not existing:
-        existing = db.query(ProductType).filter(ProductType.name.ilike(name)).first()
+    dup = _find_dup(db, ProductType, "name", name, exclude_id=existing.id if existing else None)
+    if dup:
+        _dup_error("mahsulot turi", name, dup.name)
 
     if existing:
         existing.name = name
@@ -279,9 +280,9 @@ def add_season_type(data: Dict[str, str], db: Session = Depends(get_db)):
     name = (data.get("name") or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="Sezon nomi kiritilmadi")
-    existing = db.query(SeasonType).filter(SeasonType.name.ilike(name)).first()
+    existing = _find_dup(db, SeasonType, "name", name)
     if existing:
-        return {"status": "exists", "id": existing.id}
+        _dup_error("sezoni", name, existing.name)
     st = SeasonType(name=name, status="local_only")
     db.add(st)
     db.commit()
@@ -300,9 +301,9 @@ def add_size_item(data: Dict[str, str], db: Session = Depends(get_db)):
     name = (data.get("name") or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="Razmer nomi kiritilmadi")
-    existing = db.query(SizeItem).filter(SizeItem.name.ilike(name)).first()
+    existing = _find_dup(db, SizeItem, "name", name)
     if existing:
-        return {"status": "exists", "id": existing.id}
+        _dup_error("razmeri", name, existing.name)
     sz = SizeItem(name=name, status="local_only")
     db.add(sz)
     db.commit()
@@ -383,7 +384,7 @@ async def moysklad_dict_add(dict_id: str, data: Dict[str, Any], request: Request
         raise HTTPException(status_code=400, detail="Qiymat nomi bo'sh")
     existing = {v["name"].strip().lower(): v for v in await _ms_dict_values(dict_id)}
     if name.lower() in existing:
-        return {"status": "exists", "value": existing[name.lower()]}
+        raise HTTPException(status_code=409, detail=f"'{name}' qiymati MoySklad lug'atida allaqachon bor ('{existing[name.lower()]['name']}'). Takror yaratilmadi.")
     try:
         res = await moysklad_service._call("POST", f"entity/customentity/{dict_id}", json_data={"name": name})
     except Exception as e:
@@ -398,6 +399,9 @@ async def moysklad_dict_rename(dict_id: str, value_id: str, data: Dict[str, Any]
     name = _clean(data.get("name"))
     if not name:
         raise HTTPException(status_code=400, detail="Qiymat nomi bo'sh")
+    for v in await _ms_dict_values(dict_id):
+        if v.get("id") != value_id and _norm_key(v.get("name")) == _norm_key(name):
+            raise HTTPException(status_code=409, detail=f"'{name}' qiymati lug'atda allaqachon bor ('{v.get('name')}')")
     try:
         res = await moysklad_service._call("PUT", f"entity/customentity/{dict_id}/{value_id}", json_data={"name": name})
     except Exception as e:
@@ -470,6 +474,33 @@ def _clean(v) -> str:
     return (v or "").strip()
 
 
+def _norm_key(v) -> str:
+    """Takror tekshiruvi uchun: 'K.Lacivert', 'k lacivert', 'K-LACIVERT' bir xil hisoblanadi."""
+    s = (v or "").strip().lower().replace("ё", "е")
+    return re.sub(r"[\s.\-_/]+", "", s)
+
+
+def _find_dup(db: Session, model, column, value: str, exclude_id=None):
+    """Jadvaldan shu qiymatga teng (normallashtirilgan) yozuvni topadi."""
+    key = _norm_key(value)
+    if not key:
+        return None
+    q = db.query(model)
+    if exclude_id is not None:
+        q = q.filter(model.id != exclude_id)
+    for obj in q.all():
+        if _norm_key(getattr(obj, column.key if hasattr(column, "key") else column)) == key:
+            return obj
+    return None
+
+
+def _dup_error(what: str, value: str, existing_name: str = None):
+    msg = f"'{value}' {what} allaqachon mavjud"
+    if existing_name and _norm_key(existing_name) != _norm_key(value):
+        msg += f" ('{existing_name}' sifatida yozilgan)"
+    raise HTTPException(status_code=409, detail=msg + ". Takror yozuv yaratilmadi.")
+
+
 @router.put("/group/{g_id}")
 def update_group(g_id: int, data: Dict[str, Any], db: Session = Depends(get_db)):
     g = db.query(Group).filter(Group.id == g_id).first()
@@ -516,6 +547,9 @@ def update_season(s_id: int, data: Dict[str, Any], db: Session = Depends(get_db)
             raise HTTPException(status_code=400, detail=f"'{col}' kolleksiyasi allaqachon bor")
         s.collection = col
     if code:
+        dup_code = _find_dup(db, Season, "code", code, exclude_id=s_id)
+        if dup_code:
+            raise HTTPException(status_code=409, detail=f"'{code}' kodi allaqachon '{dup_code.collection}' kolleksiyasida ishlatilgan")
         s.code = code
     db.commit()
     return {"status": "updated", "season": {"id": s.id, "collection": s.collection, "code": s.code}}
@@ -536,9 +570,9 @@ def _rename_simple(db: Session, model, obj_id: int, data: Dict[str, Any], label:
     name = _clean(data.get("name"))
     if not name:
         raise HTTPException(status_code=400, detail=f"{label} nomi bo'sh bo'lmasin")
-    dup = db.query(model).filter(model.name.ilike(name), model.id != obj_id).first()
+    dup = _find_dup(db, model, "name", name, exclude_id=obj_id)
     if dup:
-        raise HTTPException(status_code=400, detail=f"'{name}' allaqachon mavjud")
+        _dup_error(label.lower(), name, dup.name)
     obj.name = name
     db.commit()
     return {"status": "updated", "id": obj.id, "name": obj.name}
@@ -594,9 +628,9 @@ def add_brand(data: Dict[str, str], db: Session = Depends(get_db)):
     name = (data.get("name") or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="Brend nomi bo'sh bo'lishi mumkin emas")
-    existing = db.query(Brand).filter(Brand.name.ilike(name)).first()
+    existing = _find_dup(db, Brand, "name", name)
     if existing:
-        return {"status": "exists", "brand": {"id": existing.id, "name": existing.name, "status": existing.status}}
+        _dup_error("brendi", name, existing.name)
     new_b = Brand(name=name, status="local_only")
     db.add(new_b)
     db.commit()
@@ -608,9 +642,9 @@ def add_country(data: Dict[str, str], db: Session = Depends(get_db)):
     name = (data.get("name") or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="Mamlakat nomi bo'sh bo'lishi mumkin emas")
-    existing = db.query(Country).filter(Country.name.ilike(name)).first()
+    existing = _find_dup(db, Country, "name", name)
     if existing:
-        return {"status": "exists", "country": {"id": existing.id, "name": existing.name, "status": existing.status}}
+        _dup_error("mamlakati", name, existing.name)
     new_c = Country(name=name, status="local_only")
     db.add(new_c)
     db.commit()
@@ -623,11 +657,13 @@ def add_season(data: Dict[str, str], db: Session = Depends(get_db)):
     code = (data.get("code") or "").strip()
     if not col or not code:
         raise HTTPException(status_code=400, detail="Kolleksiya va kod kiritilishi shart")
-    existing = db.query(Season).filter(Season.collection.ilike(col)).first()
+    code = code.upper()
+    existing = _find_dup(db, Season, "collection", col)
     if existing:
-        existing.code = code
-        db.commit()
-        return {"status": "updated", "season": {"id": existing.id, "collection": existing.collection, "code": existing.code}}
+        _dup_error("kolleksiyasi", col, existing.collection)
+    dup_code = _find_dup(db, Season, "code", code)
+    if dup_code:
+        raise HTTPException(status_code=409, detail=f"'{code}' kodi allaqachon '{dup_code.collection}' kolleksiyasida ishlatilgan. Kod artikulga kiradi — takrorlanmasligi shart.")
     new_s = Season(collection=col, code=code, status="local_only")
     db.add(new_s)
     db.commit()
@@ -635,6 +671,34 @@ def add_season(data: Dict[str, str], db: Session = Depends(get_db)):
     return {"status": "created", "season": {"id": new_s.id, "collection": new_s.collection, "code": new_s.code}}
 
 # ================= RANG (COLOR) CRUD & TOP 10 FAVORITES =================
+def _color_dup_check(db: Session, name: str, short_code: str, code_no, other_names: List[str], exclude_id=None):
+    """Rang takrori: 3 harfli kod, № va nom (asosiy + ruscha/turkcha/inglizcha ustunlar bo'yicha)."""
+    q = db.query(Color)
+    if exclude_id is not None:
+        q = q.filter(Color.id != exclude_id)
+    rows = q.all()
+    if short_code:
+        for c in rows:
+            if (c.short_code or "").upper() == short_code.upper():
+                raise HTTPException(status_code=409, detail=f"'{short_code}' kodi allaqachon '{c.name}' rangiga biriktirilgan. Kod unikal bo'lishi shart.")
+    if code_no not in (None, "", 0):
+        try:
+            cn = int(code_no)
+            for c in rows:
+                if c.code_no == cn:
+                    raise HTTPException(status_code=409, detail=f"№ {cn} allaqachon '{c.name}' rangida ishlatilgan. Raqam unikal bo'lishi shart.")
+        except (TypeError, ValueError):
+            pass
+    for val in [name] + [x for x in other_names if x]:
+        key = _norm_key(val)
+        if not key:
+            continue
+        for c in rows:
+            for nm in (c.name, c.name_ru, c.name_tr, c.name_en):
+                if nm and _norm_key(nm) == key:
+                    raise HTTPException(status_code=409, detail=f"'{val}' nomli rang allaqachon mavjud ('{c.name}', kod {c.short_code or '-'}). Takror rang yaratilmadi.")
+
+
 @router.post("/color")
 def add_color(data: Dict[str, Any], db: Session = Depends(get_db)):
     name = (data.get("name") or "").strip()
@@ -648,14 +712,8 @@ def add_color(data: Dict[str, Any], db: Session = Depends(get_db)):
     if not short_code:
         raise HTTPException(status_code=400, detail="3 harfli qisqa kod kiritilishi shart (masalan: BLK)")
 
-    # Tekshiruv: short_code unikal bo'lishi shart!
-    dup_code = db.query(Color).filter(Color.short_code == short_code).first()
-    if dup_code:
-        raise HTTPException(status_code=400, detail=f"'{short_code}' kodi allaqachon '{dup_code.name}' rangiga biriktirilgan! Kod unikal bo'lishi shart.")
-
-    existing_name = db.query(Color).filter(Color.name.ilike(name)).first()
-    if existing_name:
-        raise HTTPException(status_code=400, detail=f"'{name}' nomli rang allaqachon mavjud!")
+    _color_dup_check(db, name, short_code, code_no,
+                     [(data.get(k) or "").strip() for k in ("name_ru", "name_tr", "name_en")])
 
     new_color = Color(
         name=name,
@@ -691,16 +749,11 @@ def update_color(color_id: int, data: Dict[str, Any], db: Session = Depends(get_
     name = (data.get("name") or "").strip()
     short_code = (data.get("short_code") or "").strip().upper()
     
+    _color_dup_check(db, name, short_code, data.get("code_no") if "code_no" in data else None,
+                     [(data.get(k) or "").strip() for k in ("name_ru", "name_tr", "name_en") if k in data], exclude_id=color_id)
     if name:
         color.name = name
     if short_code:
-        # Tekshiruv: boshqa rangda aynan shu short_code bormi?
-        dup_code = db.query(Color).filter(Color.short_code == short_code, Color.id != color_id).first()
-        if dup_code:
-            raise HTTPException(
-                status_code=400, 
-                detail=f"Xatolik: '{short_code}' kodi allaqachon '{dup_code.name}' rangiga biriktirilgan! Kodlar takrorlanmasligi shart."
-            )
         color.short_code = short_code
 
     if "name_ru" in data:

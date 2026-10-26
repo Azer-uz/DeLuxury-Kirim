@@ -84,7 +84,7 @@ function showToast(message, type = 'info') {
   const toast = document.createElement('div');
   toast.className = `toast toast-${type}`;
   toast.innerHTML = `
-    <span>${type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️'}</span>
+    <span>${type === 'success' ? '✅' : type === 'error' ? '❌' : type === 'warning' ? '⚠️' : 'ℹ️'}</span>
     <div>${message}</div>
   `;
   container.appendChild(toast);
@@ -733,14 +733,14 @@ function setupQuickAddModals() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      if (resp.ok) {
-        modalPt.classList.remove('active');
-        await References.init();
-        renderReferencesUI('ref-product-types');
-        Grid.recalculateAll();
-        Grid.render();
-        showToast(`"${name}" ierarxiyasi saqlandi!`, "success");
-      }
+      const d = await resp.json().catch(() => ({}));
+      if (!resp.ok) return showToast(d.detail || "Saqlab bo'lmadi", resp.status === 409 ? 'warning' : 'error');
+      modalPt.classList.remove('active');
+      await References.init();
+      renderReferencesUI('ref-product-types');
+      Grid.recalculateAll();
+      Grid.render();
+      showToast(`"${name}" ierarxiyasi saqlandi!`, "success");
     } catch (e) {
       alert("Xatolik yuz berdi");
     }
