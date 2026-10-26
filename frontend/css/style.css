@@ -2804,9 +2804,9 @@ body.theme-light .color-quick-bar.open-up {
 }
 .grid-fullscreen-mode .grid-container {
   width: 100% !important;
-  min-height: 0 !important;
   margin-bottom: 0.5rem !important;
   flex: 1 1 auto !important;          /* qolgan balandlikni egallaydi */
+  min-height: 50vh !important;        /* statistika/pastki panel jadvalni siqib qo'ymasin */
   display: flex !important;
   flex-direction: column !important;
   overflow: hidden !important;
