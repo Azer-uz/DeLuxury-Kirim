@@ -9,21 +9,24 @@ const Grid = {
   autoSaveTimer: null,
 
   async init() {
-    try {
-      await this.fetchBaseCounter();
-    } catch (e) {
-      console.warn("Could not fetch counter:", e);
-    }
+    // Avtosaqlash va klaviatura — DARHOL (MoySklad hisoblagichini kutmasdan; u 5-10 s olishi mumkin)
+    this.setupKeyboardEvents();
+    this.setupAutoSave();
+    this.setupHeaderActions();
+    if (typeof this.setupMultiColorModalEvents === 'function') this.setupMultiColorModalEvents();
     if (!this.rows || this.rows.length === 0) {
       this.addEmptyRows(1);
     } else {
       this.recalculateAll();
       this.render();
     }
-    this.setupKeyboardEvents();
-    this.setupAutoSave();
-    this.setupHeaderActions();
-    if (typeof this.setupMultiColorModalEvents === 'function') this.setupMultiColorModalEvents();
+    try {
+      await this.fetchBaseCounter();   // model raqami / kod oldindan ko'rish uchun
+      this.recalculateAll();
+      this.render();
+    } catch (e) {
+      console.warn("Could not fetch counter:", e);
+    }
   },
 
   async fetchBaseCounter() {

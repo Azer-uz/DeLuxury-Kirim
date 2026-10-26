@@ -480,6 +480,11 @@ async def submit_to_moysklad(data: Dict[str, Any], request: Request, db: Session
     if not doc_number and ms_result.get("document_name"):
         doc_number = str(ms_result.get("document_name"))
         new_doc.doc_number = doc_number
+        try:
+            from backend.routers.articul import invalidate_counter_cache
+            invalidate_counter_cache()
+        except Exception:
+            pass
     db.commit()
 
     # Qoralamani o'chiramiz (ajratilgan model raqamlari tarix uchun qoladi)

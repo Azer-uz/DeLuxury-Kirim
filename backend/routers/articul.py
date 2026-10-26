@@ -15,9 +15,21 @@ logger = logging.getLogger(__name__)
 
 CODE_KEY = "%:code:%"
 
+_COUNTER_CACHE: Dict[str, Any] = {}   # MoySklad assortimentini (3000+ tovar) har sahifa ochilishida o'qimaslik uchun
+COUNTER_CACHE_TTL = 30
+
+
+def invalidate_counter_cache():
+    _COUNTER_CACHE.clear()
+
+
 @router.get("/counter")
 async def get_counter_info(db: Session = Depends(get_db)):
-    """Oxirgi model raqami va tovar kodi (MoySklad bilan sinxron) — jadvalda oldindan ko'rish uchun"""
+    """Oxirgi model raqami va tovar kodi (MoySklad bilan sinxron) — jadvalda oldindan ko'rish uchun. 30 s kesh."""
+    import time as _t
+    cached = _COUNTER_CACHE.get("data")
+    if cached and _t.time() - _COUNTER_CACHE.get("ts", 0) < COUNTER_CACHE_TTL:
+        return cached
     duplicates = []
     try:
         last_num = sync_counter(db, await ms_service.get_max_model_number())
@@ -30,7 +42,7 @@ async def get_counter_info(db: Session = Depends(get_db)):
         last_num = get_counter(db).last_number
         last_code = get_code_counter(db).last_number
         synced = False
-    return {
+    _result = {
         "last_number": last_num,
         "next_preview": f"{last_num + 1:05d}",
         "last_code": last_code,
@@ -38,6 +50,9 @@ async def get_counter_info(db: Session = Depends(get_db)):
         "duplicate_codes": duplicates,
         "synced": synced,
     }
+    if synced:
+        _COUNTER_CACHE.update({"data": _result, "ts": _t.time()})
+    return _result
 
 @router.post("/counter")
 def update_counter(data: Dict[str, Any], request: Request, db: Session = Depends(get_db)):
@@ -45,6 +60,7 @@ def update_counter(data: Dict[str, Any], request: Request, db: Session = Depends
     Model raqami: yuborilmagan qoralamalarga ajratilganlardan pastga tushmaydi.
     Tovar kodi: faqat OSHIRISH mumkin — berilgan kod hech qachon qayta berilmasligi uchun."""
     require_admin(request)
+    invalidate_counter_cache()
     result: Dict[str, Any] = {"status": "success"}
 
     if data.get("last_number") is not None:
