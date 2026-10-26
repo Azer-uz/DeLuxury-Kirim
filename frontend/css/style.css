@@ -2804,14 +2804,19 @@ body.theme-light .color-quick-bar.open-up {
 }
 .grid-fullscreen-mode .grid-container {
   width: 100% !important;
-  min-height: auto !important;
+  min-height: 0 !important;
   margin-bottom: 0.5rem !important;
+  flex: 1 1 auto !important;          /* qolgan balandlikni egallaydi */
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
 }
 .grid-fullscreen-mode .grid-container .table-responsive {
   max-height: none !important;
   height: auto !important;
   min-height: 0 !important;
-  overflow: visible !important;
+  flex: 1 1 auto !important;
+  overflow: auto !important;          /* jadval qutisining o'zi skroll qiladi (avval 'visible' — kesilib qolardi) */
 }
 .grid-fullscreen-mode .grid-toolbar,
 .grid-fullscreen-mode .stats-summary-bar,
