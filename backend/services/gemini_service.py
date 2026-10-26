@@ -20,10 +20,16 @@ GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:ge
 GEMINI_MODELS = [
     "gemini-3-flash-preview",
     "gemini-3.8-flash",
+    "gemini-3.7-flash",
+    "gemini-3.6-flash",
     "gemini-3.5-flash",
+    "gemini-2.5-flash",
+    "gemini-3.5-flash-lite",
 ]
 
 class GeminiService:
+    _quota_block: Dict[str, float] = {}   # model -> shu vaqtgacha chetlab o'tiladi (429 kvota)
+
     def __init__(self):
         self.settings = get_settings()
         self.api_key = self.settings.gemini_api_key
@@ -181,16 +187,36 @@ QOIDALAR:
             }
         }
 
-        # Model band bo'lsa (503) keyingisiga o'tamiz. Kalit URL'da emas, sarlavhada — loglarga tushmaydi
+        # Model band bo'lsa (503) — 2 marta qayta urinamiz, keyin keyingi model; kvota tugagan (429) model 10 daqiqa chetlab o'tiladi.
+        # Kalit URL'da emas, sarlavhada — loglarga tushmaydi
+        import time as _t, asyncio as _aio
         reasons: List[str] = []
+        now = _t.time()
         async with httpx.AsyncClient(timeout=120.0) as client:
             for model_name in GEMINI_MODELS:
+                until = self._quota_block.get(model_name, 0)
+                if until > now:
+                    reasons.append(f"{model_name}: kvota tugagan ({int((until - now) // 60) + 1} daq keyin qayta)")
+                    continue
                 try:
-                    resp = await client.post(
-                        GEMINI_URL.format(model=model_name),
-                        json=payload,
-                        headers={"Content-Type": "application/json", "x-goog-api-key": self.api_key},
-                    )
+                    resp = None
+                    for attempt in range(3):
+                        resp = await client.post(
+                            GEMINI_URL.format(model=model_name),
+                            json=payload,
+                            headers={"Content-Type": "application/json", "x-goog-api-key": self.api_key},
+                        )
+                        if resp.status_code in (503, 500, 502, 504) and attempt < 2:
+                            await _aio.sleep(2 + attempt * 2)   # vaqtinchalik yuklama — 2 s, 4 s kutib qayta
+                            continue
+                        break
+                    if resp.status_code == 429:
+                        body = resp.text.replace("\n", " ")
+                        logger.warning(f"Model {model_name} quota (429): {body[:600]}")
+                        per_day = "PerDay" in body or "per day" in body.lower() or "daily" in body.lower()
+                        self._quota_block[model_name] = now + (3600 if per_day else 600)
+                        reasons.append(f"{model_name}: kvota tugagan (429" + (", kunlik limit" if per_day else ", daqiqalik limit") + ")")
+                        continue
                     if resp.status_code == 200:
                         data = resp.json()
                         candidates = data.get("candidates", [])
@@ -222,7 +248,7 @@ QOIDALAR:
                     else:
                         short = resp.text[:160].replace("\n", " ")
                         logger.warning(f"Model {model_name} returned status {resp.status_code}: {short}")
-                        reasons.append(f"{model_name}: HTTP {resp.status_code}" + (" (rasm formati/hajmi qabul qilinmadi)" if resp.status_code == 400 else " (band, keyinroq)" if resp.status_code in (429, 503) else ""))
+                        reasons.append(f"{model_name}: HTTP {resp.status_code}" + (" (rasm formati/hajmi qabul qilinmadi)" if resp.status_code == 400 else " (Google tomonida yuklama, 3 marta urinildi)" if resp.status_code == 503 else " (band, keyinroq)" if resp.status_code in (429, 503) else ""))
                         continue
                 except Exception as e:
                     logger.warning(f"Error calling {model_name}: {e}")
