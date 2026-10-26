@@ -116,14 +116,17 @@ class MoySkladService:
         """Yuborish lahzasida: MoySklad'dagi oxirgi raqamdan keyingi BO'SH raqam.
         Kimdir MoySklad'ning o'zida raqam yaratgan yoki navbat buzilgan bo'lsa ham to'qnashuv bo'lmaydi."""
         number = await self.get_next_supply_number()
+        if not number:
+            raise MoySkladError("MoySklad'dan oxirgi Приемка raqami olinmadi (token yoki tarmoq)")
         for _ in range(50):
             if not await self.supply_exists(number):
                 return number
             number = f"{int(number) + 1:05d}"
         raise MoySkladError("Bo'sh Приемка raqami topilmadi (50 ta ketma-ket band)")
 
-    async def get_next_supply_number(self) -> str:
-        """Oxirgi Приемка raqamidan keyingi 5 xonali raqam (masalan 00042). Oxirgi 100 ta hujjat ko'riladi"""
+    async def get_next_supply_number(self) -> Optional[str]:
+        """Oxirgi Приемка raqamidan keyingi 5 xonali raqam (masalan 00042). Oxirgi 100 ta hujjat ko'riladi.
+        MoySklad'ga ulanib bo'lmasa None — soxta '00001' ko'rsatilmaydi."""
         try:
             data = await self._call("GET", "entity/supply", params={"order": "moment,desc", "limit": 100})
             highest = 0
@@ -131,11 +134,10 @@ class MoySkladService:
                 digits = "".join(ch for ch in (r.get("name") or "") if ch.isdigit())
                 if digits:
                     highest = max(highest, int(digits))
-            if highest > 0:
-                return f"{highest + 1:05d}"
+            return f"{highest + 1:05d}"
         except MoySkladError as e:
             logger.error(f"Error determining next supply number: {e}")
-        return "00001"
+        return None
 
     async def supply_exists(self, name: str) -> bool:
         data = await self._call("GET", "entity/supply", params={"filter": f"name={name}", "limit": 1})

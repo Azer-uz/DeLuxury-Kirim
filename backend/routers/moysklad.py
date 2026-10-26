@@ -53,6 +53,8 @@ async def create_counterparty_endpoint(data: Dict[str, Any]):
 async def get_next_doc_number_endpoint():
     """Get the next 5-digit document number matching MoySklad sequence (e.g. 00035)."""
     next_num = await ms_service.get_next_supply_number()
+    if not next_num:
+        return {"next_number": None, "error": "MoySklad'dan raqam olinmadi — token yoki tarmoqni tekshiring (Sozlamalar → API)"}
     return {"next_number": next_num}
 
 @router.get("/currency-rate")
