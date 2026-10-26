@@ -501,7 +501,8 @@ async def submit_to_moysklad(data: Dict[str, Any], request: Request, db: Session
         new_doc.doc_number = doc_number
         try:
             from backend.routers.articul import invalidate_counter_cache
-            invalidate_counter_cache()
+            from backend.routers.moysklad import invalidate_next_number_cache
+            invalidate_counter_cache(); invalidate_next_number_cache()
         except Exception:
             pass
     db.commit()

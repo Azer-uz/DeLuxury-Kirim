@@ -149,12 +149,23 @@ async def search_products(q: str = "", limit: int = 40, db: Session = Depends(ge
     return {"items": chosen[:lim], "query": q, "total": len(chosen), "exact": bool(full)}
 
 
+_NEXT_NUM_CACHE: Dict[str, Any] = {}
+
+
+def invalidate_next_number_cache():
+    _NEXT_NUM_CACHE.clear()
+
+
 @router.get("/next-doc-number")
 async def get_next_doc_number_endpoint():
-    """Get the next 5-digit document number matching MoySklad sequence (e.g. 00035)."""
+    """Get the next 5-digit document number matching MoySklad sequence (e.g. 00035). 20 s kesh (faqat taxmin uchun)."""
+    import time as _t
+    if _NEXT_NUM_CACHE.get("v") and _t.time() - _NEXT_NUM_CACHE.get("ts", 0) < 20:
+        return {"next_number": _NEXT_NUM_CACHE["v"]}
     next_num = await ms_service.get_next_supply_number()
     if not next_num:
         return {"next_number": None, "error": "MoySklad'dan raqam olinmadi — token yoki tarmoqni tekshiring (Sozlamalar → API)"}
+    _NEXT_NUM_CACHE.update({"v": next_num, "ts": _t.time()})
     return {"next_number": next_num}
 
 @router.get("/currency-rate")

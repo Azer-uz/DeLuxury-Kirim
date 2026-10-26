@@ -730,23 +730,14 @@ const SuppliesList = {
     if (suppliesView) suppliesView.style.display = 'none';
     if (gridView) {
       gridView.style.display = 'block';
-      if (typeof loadMoySkladMetadata === 'function') {
-        await loadMoySkladMetadata();
-      }
-
-      // Always fetch latest next doc number directly from API
-      try {
-        const nextNumResp = await fetch('/api/moysklad/next-doc-number');
-        if (nextNumResp.ok) {
-          const nextData = await nextNumResp.json();
-          const docInput = document.getElementById('header-doc-number');
-          if (docInput && nextData.next_number) {
-            docInput.value = nextData.next_number; if (typeof Grid !== 'undefined' && Grid.setDocNumberMode) Grid.setDocNumberMode(false);
-          }
+      // MoySklad ma'lumotlari va taxminiy raqam — fonda (jadval kutmaydi)
+      if (typeof loadMoySkladMetadata === 'function') loadMoySkladMetadata().catch(() => {});
+      fetch('/api/moysklad/next-doc-number').then(r => r.ok ? r.json() : null).then(nextData => {
+        const docInput = document.getElementById('header-doc-number');
+        if (docInput && nextData && nextData.next_number && !(typeof Grid !== 'undefined' && Grid.manualDocNumber)) {
+          docInput.value = nextData.next_number; if (typeof Grid !== 'undefined' && Grid.setDocNumberMode) Grid.setDocNumberMode(false);
         }
-      } catch (e) {
-        console.warn("Could not fetch next doc number:", e);
-      }
+      }).catch((e) => console.warn("Could not fetch next doc number:", e));
 
       if (typeof Grid !== 'undefined' && Grid.hasUsefulRows()) {
         // Tugallanmagan kirim bor — davom ettiramiz (yangi boshlash uchun "Tozalash")
@@ -764,9 +755,9 @@ const SuppliesList = {
           Grid.activeDraftId = null;
           Grid.isDirty = false;
           Grid.rows = [Grid.createEmptyRow()];
-          await Grid.fetchBaseCounter();
           Grid.recalculateAll();
           Grid.render();
+          Grid.fetchBaseCounter().then(() => { Grid.recalculateAll(); Grid.render(); }).catch(() => {});
         }
       }
     }
@@ -787,9 +778,8 @@ const SuppliesList = {
       if (suppliesView) suppliesView.style.display = 'none';
       if (gridView) gridView.style.display = 'block';
 
-      if (typeof loadMoySkladMetadata === 'function') {
-        await loadMoySkladMetadata({ skipNextDocNumber: true });
-      }
+      // MoySklad ma'lumotlari (ombor/kontragent ro'yxati) — FONDA; keshda bo'lsa darhol
+      const metaP = (typeof loadMoySkladMetadata === 'function') ? loadMoySkladMetadata({ skipNextDocNumber: true }).catch(() => {}) : Promise.resolve();
 
       // Populate headers from saved draft
       if (data.header) {
@@ -800,22 +790,26 @@ const SuppliesList = {
         if (data.header.manual_number && data.header.doc_number) {
           Grid.setDocNumberMode(true, String(data.header.doc_number).replace(/^≈/, ''));
         } else {
-          // Avto rejim: taxminiy raqam ko'rsatiladi, haqiqiysi yuborishda MoySklad navbati bo'yicha beriladi
-          try {
-            const nn = await fetch('/api/moysklad/next-doc-number');
-            const docEl = document.getElementById('header-doc-number');
-            if (nn.ok && docEl) docEl.value = (await nn.json()).next_number || '';
-          } catch (_) {}
+          // Avto rejim: taxminiy raqam fonda yuklanadi, haqiqiysi yuborishda MoySklad navbati bo'yicha beriladi
           Grid.setDocNumberMode(false);
+          fetch('/api/moysklad/next-doc-number').then(r => r.ok ? r.json() : null).then(d => {
+            const docEl = document.getElementById('header-doc-number');
+            if (d && d.next_number && docEl && !Grid.manualDocNumber) { docEl.value = d.next_number; Grid.setDocNumberMode(false); }
+          }).catch(() => {});
         }
-        if (data.header.store_id) {
-          const stEl = document.getElementById('header-store');
-          if (stEl) stEl.value = data.header.store_id;
-        }
-        if (data.header.counterparty_id) {
-          const cpEl = document.getElementById('header-counterparty');
-          if (cpEl) cpEl.value = data.header.counterparty_id;
-        }
+        // Ombor/kontragent ro'yxati fonda kelganda ham tanlov saqlanib qolsin
+        const applyHeaderSelects = () => {
+          if (data.header.store_id) {
+            const stEl = document.getElementById('header-store');
+            if (stEl) stEl.value = data.header.store_id;
+          }
+          if (data.header.counterparty_id) {
+            const cpEl = document.getElementById('header-counterparty');
+            if (cpEl) { cpEl.value = data.header.counterparty_id; cpEl.dispatchEvent(new Event('change', { bubbles: true })); }
+          }
+        };
+        applyHeaderSelects();
+        metaP.then(() => { applyHeaderSelects(); Grid.isDirty = false; });
         const curEl = document.getElementById('header-currency');
         if (curEl) curEl.value = (data.header.currency === 'USD' && References.settings.usd_enabled) ? 'USD' : 'UZS';
         const rateEl = document.getElementById('header-rate');
@@ -828,9 +822,10 @@ const SuppliesList = {
         Grid.activeDraftId = data.id || draftId;
         Grid.rows = (data.rows && data.rows.length > 0) ? data.rows : [Grid.createEmptyRow()];
         Grid.isDirty = false;
-        await Grid.fetchBaseCounter();
         Grid.recalculateAll();
-        Grid.render();
+        Grid.render();   // jadval DARHOL ko'rinadi
+        // Model raqami/kod hisoblagichi — fonda (MoySklad assortimentini o'qiydi, sekin bo'lishi mumkin)
+        Grid.fetchBaseCounter().then(() => { if (Grid.activeDraftId === (data.id || draftId)) { Grid.recalculateAll(); Grid.render(); Grid.isDirty = false; } }).catch(() => {});
       }
 
       if (typeof showToast === 'function') {
