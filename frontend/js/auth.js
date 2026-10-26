@@ -87,6 +87,12 @@ const Auth = {
   setUser(user) {
     this.user = user;
     if (!user) return;
+    // SSO orqali kirilgan bo'lsa — bosh ilovaga qaytish havolasi
+    const home = document.getElementById('sso-home-link');
+    if (home) {
+      if (user.home) { home.href = user.home; home.textContent = '← ' + (user.home_name || 'Bosh ilova'); home.style.display = ''; }
+      else { home.style.display = 'none'; }
+    }
     const initials = (user.name || user.login || '?').trim().charAt(0).toUpperCase();
     document.querySelectorAll('.user-avatar').forEach(el => { el.textContent = initials; });
     document.querySelectorAll('.user-name').forEach(el => { el.textContent = user.name || user.login; });

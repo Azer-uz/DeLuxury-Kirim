@@ -53,7 +53,7 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-PUBLIC_API = {"/api/auth/login", "/api/auth/logout"}
+PUBLIC_API = {"/api/auth/login", "/api/auth/logout", "/api/auth/sso"}
 
 def _is_local_direct(request: Request) -> bool:
     """To'g'ridan-to'g'ri localhost ulanishi (nginx orqali kelgan tashqi so'rov emas)"""

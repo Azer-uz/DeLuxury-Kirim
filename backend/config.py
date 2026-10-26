@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     # Qo'shimcha adminlar (MoySklad loginlari, vergul bilan). MoySklad'dagi owner/admin roli avtomatik admin
     admin_logins: str = ""
 
+    # SSO — bosh ilovadan (masalan Said Baraka) qayta login qilmasdan kirish. Umumiy maxfiy kalit ikkala ilovada bir xil
+    sso_secret: str = ""
+    sso_home_url: str = ""      # masalan https://said-baraka.uz — "orqaga" havolasi
+    sso_home_name: str = ""     # masalan "Said Baraka"
+
     # Gateway (/api/gateway/*) — bot kabi ichki xizmatlar uchun. Localhost'dan tokensiz, tashqaridan faqat shu token bilan
     gateway_token: str = ""
 

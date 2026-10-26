@@ -46,6 +46,8 @@
 
     <!-- Top Right Controls: Quick Sync, New Supply, Theme Switcher, User Profile -->
     <div class="nav-status">
+      <!-- Bosh ilovaga qaytish (SSO) -->
+      <a class="btn btn-secondary btn-sm" id="sso-home-link" style="display:none; padding: 0.35rem 0.75rem; text-decoration:none;" title="Bosh ilovaga qaytish">← Bosh ilova</a>
       <!-- Quick Sync Button -->
       <button class="btn btn-secondary btn-sm" id="btn-quick-sync" title="MoySklad bilan ma'lumotlarni yangilash" style="padding: 0.35rem 0.75rem; font-size: 0.8rem; border-radius: var(--radius-sm);">
         <span>🔄</span> Sinxron
@@ -1206,6 +1208,7 @@
   <div class="toast-container" id="toast-container"></div>
 
   <!-- Scripts -->
+  <script src="js/password-eye.js?v=1.0"></script>
   <script src="js/auth.js?v=1.0"></script>
   <script src="js/dashboard.js?v=2.0"></script>
   <script src="js/supplies.js?v=3.0"></script>
