@@ -29,7 +29,8 @@
       document.getElementById('modal-product-search')?.classList.remove('active');
       if (this.lastAdded !== undefined && this.lastAdded !== null) {
         const idx = this.lastAdded; this.lastAdded = null;
-        setTimeout(() => { const q = document.querySelector(`input[data-field="quantity"][data-row="${idx}"]`); if (q) { q.focus(); q.select(); } }, 60);
+        const fld = this.lastAddedField || 'quantity'; this.lastAddedField = null;
+        setTimeout(() => { const q = document.querySelector(`input[data-field="${fld}"][data-row="${idx}"]`); if (q) { q.focus(); q.select(); } }, 60);
       }
     },
     esc(s) { return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'); },
@@ -52,9 +53,11 @@
           <td>${this.esc(p.fields?.brand)}</td><td>${this.esc(p.fields?.color)}</td><td>${this.esc(p.fields?.size)}</td>
           <td style="text-align:right">${fmt(p.price_buy)}</td><td style="text-align:right">${fmt(p.price_sale)}</td>
           <td style="text-align:right">${p.stock === undefined || p.stock === null ? '—' : fmt(p.stock)}</td>
-          <td><button class="btn btn-primary btn-sm" data-ps-add="${i}">➕ Qo'shish</button></td>
+          <td style="white-space: nowrap;"><button class="btn btn-primary btn-sm" data-ps-add="${i}" title="Aynan shu tovar (mavjud) — faqat soni/narx">➕ Qo'shish</button>
+            <button class="btn btn-secondary btn-sm" data-ps-color="${i}" title="Shu modelga YANGI RANG: model raqami bazadagidek qoladi, yangi rang bilan yangi tovar yaratiladi" style="margin-left: 4px;">🎨 Yangi rang</button></td>
         </tr>`).join('');
       tb.querySelectorAll('[data-ps-add]').forEach(b => b.onclick = () => this.add(parseInt(b.getAttribute('data-ps-add'))));
+      tb.querySelectorAll('[data-ps-color]').forEach(b => b.onclick = () => this.addNewColor(parseInt(b.getAttribute('data-ps-color'))));
     },
     add(i) {
       const p = this.items[i]; if (!p) return;
@@ -78,6 +81,36 @@
       const inp = document.getElementById('ps-query'); if (inp) { inp.value = ''; inp.focus(); }
       this.items = []; document.getElementById('ps-tbody').innerHTML = '<tr><td colspan="10" style="color: var(--text-muted);">Keyingi tovarni qidiring...</td></tr>';
     },
+    // Mavjud modelga yangi rang: model raqami bazadagidek, rang bo'sh (foydalanuvchi tanlaydi), yangi tovar
+    addNewColor(i) {
+      const p = this.items[i]; if (!p) return;
+      const f = p.fields || {};
+      let model = (f.model_code || '').trim().toUpperCase();
+      if (!model && p.article) {
+        const art = String(p.article).trim().toUpperCase();
+        const m = art.match(/^([A-Z0-9]{2,4}[A-Z]{2,4}\d{5})/); model = m ? m[1] : art;
+      }
+      if (!model) { if (typeof showToast === 'function') showToast('Bu tovarda model raqami topilmadi', 'error'); return; }
+      // Описание: tovar nomidan tur/brend/kod modeli olib tashlanadi ("Куртка косой карман BV 745 MIGLIORE" -> "косой карман")
+      let desc = String(p.name || '');
+      [f.product_type, f.brand, f.factory_code, (f.factory_code || '').replace(/-/g, ' '), (f.factory_code || '').replace(/\s+/g, '-')].filter(Boolean).forEach(t => { desc = desc.replace(new RegExp(t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'ig'), ' '); });
+      desc = desc.replace(/\s{2,}/g, ' ').replace(/\s*-\s*\d+\s*$/, '').trim();
+      const row = Grid.createEmptyRow({
+        country: f.country || '', product_type: f.product_type || '', brand: f.brand || '', factory_code: f.factory_code || '',
+        series: f.series || '', collection: f.collection || '', season: f.season || '', size: f.size || '', color: '',
+        description: desc, quantity: 1, price_buy: p.price_buy || 0, price_sale: p.price_sale || 0,
+        model_code: model, custom_model: true
+      });
+      if (typeof Grid.pushUndo === 'function') Grid.pushUndo('Mavjud modelga yangi rang');
+      const last = Grid.rows[Grid.rows.length - 1];
+      if (last && !Grid.isUsefulRow(last) && !last.ms_product_id) Grid.rows[Grid.rows.length - 1] = row; else Grid.rows.push(row);
+      Grid.recalculateAll(); Grid.render(); Grid.triggerAutoSave();
+      this.lastAdded = Grid.rows.length - 1; this.lastAddedField = 'color';
+      if (typeof showToast === 'function') showToast(`🎨 Model ${model} uchun yangi rang qatori qo'shildi — rangni tanlang`, 'success');
+      const st = document.getElementById('ps-status'); if (st) st.textContent = `🎨 ${model}: yangi rang qatori qo'shildi. Yana qidiring yoki Esc bilan yoping`;
+      const inp = document.getElementById('ps-query'); if (inp) { inp.value = ''; inp.focus(); }
+      this.items = []; document.getElementById('ps-tbody').innerHTML = '<tr><td colspan="10" style="color: var(--text-muted);">Keyingi tovarni qidiring...</td></tr>';
+    },
     setup() {
       document.getElementById('btn-open-product-search')?.addEventListener('click', () => this.open());
       document.getElementById('btn-close-product-search')?.addEventListener('click', () => this.close());
@@ -93,9 +126,21 @@
   };
   Grid.ProductSearch = ProductSearch;
   // Mavjud tovar qatorlari: identifikatsiya kataklari qulf, № katagida belgi
+  const MODEL_LOCKED = ['product_type', 'brand', 'factory_code', 'collection', 'season'];
   Grid.lockExistingRows = function () {
     document.querySelectorAll('#grid-tbody tr').forEach((tr, i) => {
-      const r = this.rows[i]; if (!r || !r.ms_product_id) return;
+      const r = this.rows[i]; if (!r) return;
+      if (r.custom_model && !r.ms_product_id) {
+        tr.classList.add('row-fixed-model');
+        tr.querySelectorAll('input, select').forEach(el => {
+          const f = el.getAttribute('data-field');
+          if (f && MODEL_LOCKED.includes(f)) { el.readOnly = true; el.disabled = el.tagName === 'SELECT'; el.classList.add('cell-locked'); el.title = `Mavjud model ${r.model_code} — bu maydon bazadagidek qoladi`; }
+        });
+        const num = tr.querySelector('.cell-num');
+        if (num && !num.querySelector('.ms-badge')) num.insertAdjacentHTML('beforeend', ` <span class="ms-badge" title="Mavjud model ${r.model_code} uchun yangi rang (yangi tovar yaratiladi)">🎨</span>`);
+        return;
+      }
+      if (!r.ms_product_id) return;
       tr.classList.add('row-existing');
       tr.querySelectorAll('input, select, textarea').forEach(el => {
         const f = el.getAttribute('data-field');
@@ -105,6 +150,14 @@
       if (num && !num.querySelector('.ms-badge')) num.insertAdjacentHTML('beforeend', ' <span class="ms-badge" title="Bazadan (MoySklad) tanlangan mavjud tovar">📦</span>');
     });
   };
+  // Ctrl+F — capture bosqichida: katak ichidagi handlerlar stopPropagation qilsa ham, brauzer qidiruvi ochilmaydi
+  window.addEventListener('keydown', (e) => {
+    if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || (e.key || '').toLowerCase() !== 'f') return;
+    const gridOpen = document.getElementById('supplies-grid-view')?.style.display !== 'none' && document.getElementById('tab-supplies')?.classList.contains('active');
+    if (!gridOpen) return;
+    e.preventDefault(); e.stopPropagation();
+    if (ProductSearch.isOpen()) document.getElementById('ps-query')?.focus(); else ProductSearch.open();
+  }, true);
   document.addEventListener('DOMContentLoaded', () => {
     ProductSearch.setup();
     const origRender2 = Grid.render.bind(Grid);
@@ -483,7 +536,7 @@
     if (!gridOpen) return;
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && (!inInput || document.activeElement.type === 'checkbox')) { e.preventDefault(); Grid.undo(); }
     if ((e.ctrlKey || e.metaKey) && e.key === 'Delete') { e.preventDefault(); Grid.bulkDelete(); }
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f' && !e.shiftKey) { e.preventDefault(); Grid.ProductSearch.open(); }
+
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a' && !inInput) { e.preventDefault(); Grid.selectAll(true); }
     if (e.key === 'Escape' && Grid.selectedIdx().length) Grid.clearSelection();
   });

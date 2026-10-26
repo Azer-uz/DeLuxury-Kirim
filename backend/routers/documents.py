@@ -4,6 +4,7 @@ import json
 import logging
 import time
 import datetime
+import re
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from typing import Dict, Any, List, Optional
@@ -251,8 +252,14 @@ def _check_rows(rows: List[Dict[str, Any]], header: Dict[str, Any], settings: Di
                 err(idx, "size", f"Bitta qatorda bir nechta razmer ({size}). Ctrl+Enter bilan razmerlarga ajrating.")
 
         custom_articul = _txt(r.get("articul")) if r.get("custom_articul") else ""
+        # Mavjud modelga yangi rang: model raqami bazadagidek (A26OUT00596), rang kodi yangi, tovar yangi yaratiladi
+        fixed_model = _txt(r.get("model_code")).upper() if (r.get("custom_model") and not ms_product_id) else ""
+        if fixed_model and not re.fullmatch(r"[A-Z0-9]{2,4}[A-Z]{2,4}\d{5}", fixed_model):
+            err(idx, "model_code", f"Model raqami noto'g'ri formatda: {fixed_model}")
+        if fixed_model and settings.get("color_enabled") and not color:
+            err(idx, "color", "Mavjud modelga yangi rang: rang tanlanishi shart!")
         model_key = _txt(r.get("model_key")) or f"row{idx}"
-        variant = ("ms", ms_product_id) if ms_product_id else ("custom", custom_articul) if custom_articul else (
+        variant = ("ms", ms_product_id) if ms_product_id else ("fixed", fixed_model, color_code or "", normalize_size(size) if settings.get("size_enabled") else "") if fixed_model else ("custom", custom_articul) if custom_articul else (
             model_key,
             color_code if settings.get("color_enabled") else "",
             normalize_size(size) if settings.get("size_enabled") else "",
@@ -267,6 +274,7 @@ def _check_rows(rows: List[Dict[str, Any]], header: Dict[str, Any], settings: Di
             "model_key": model_key,
             "custom_articul": custom_articul,
             "ms_product_id": ms_product_id,
+            "fixed_model": fixed_model,
             "ms_article": _txt(r.get("ms_article")) or _txt(r.get("articul")),
             "ms_code": _txt(r.get("ms_code")) or _txt(r.get("code")),
             "ms_name": _txt(r.get("ms_name")) or _txt(r.get("full_name")),
@@ -395,7 +403,7 @@ async def submit_to_moysklad(data: Dict[str, Any], request: Request, db: Session
         await _warn_duplicate_codes(code_stats["duplicates"])
     async with _allocation_lock:
         sync_counter(db, ms_max)
-        numbers = allocate_model_numbers(db, scope, [p["model_key"] for p in prepared if not p["custom_articul"] and not p["ms_product_id"]])
+        numbers = allocate_model_numbers(db, scope, [p["model_key"] for p in prepared if not p["custom_articul"] and not p["ms_product_id"] and not p["fixed_model"]])
 
     items = []
     seen_products: Dict[tuple, int] = {}
@@ -406,6 +414,11 @@ async def submit_to_moysklad(data: Dict[str, Any], request: Request, db: Session
             model_code = ""
             articul = p["ms_article"]
             key = ("ms", p["ms_product_id"])
+        elif p["fixed_model"]:
+            # Bazadagi model + yangi rang: artikul = model + rang kodi, yangi tovar kodi beriladi
+            model_code = p["fixed_model"]
+            articul = build_articul(model_code, p["color_code"], settings)
+            key = product_key(articul, p["size"], settings)
         elif p["custom_articul"]:
             model_code = ""
             articul = p["custom_articul"]
@@ -422,7 +435,7 @@ async def submit_to_moysklad(data: Dict[str, Any], request: Request, db: Session
         seen_products[key] = p["row_index"]
         money = calc_money(p["quantity"], p["price_buy"], p["price_sale"], rate)
         items.append({
-            **{k: v for k, v in p.items() if k not in ("model_key", "custom_articul", "color_code", "group_code", "season_code")},
+            **{k: v for k, v in p.items() if k not in ("model_key", "custom_articul", "fixed_model", "color_code", "group_code", "season_code")},
             "model_code": model_code,
             "articul": articul,
             "product_key": key,

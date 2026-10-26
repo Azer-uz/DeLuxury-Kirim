@@ -3281,3 +3281,6 @@ body.theme-light .cell-suspect { background-color: rgba(234, 179, 8, 0.28) !impo
 .confirm-pop-msg { line-height: 1.45; margin-bottom: 0.7rem; white-space: normal; }
 .confirm-pop-btns { display: flex; gap: 0.45rem; justify-content: flex-end; flex-wrap: wrap; }
 .confirm-pop .btn-danger { background: var(--accent-red); color: #fff; border-color: var(--accent-red); }
+
+/* Mavjud modelga yangi rang qatori */
+.excel-table tr.row-fixed-model td { background: rgba(245, 158, 11, 0.05); }

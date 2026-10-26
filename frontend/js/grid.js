@@ -78,7 +78,8 @@ const Grid = {
       if (!r.model_key) r.model_key = this.newModelKey();
       if (r.ms_product_id) { r._product_idx = null; return; }  // mavjud tovar — raqam/kod navbatini egallamaydi
       if (this.isUsefulRow(r)) {
-        if (!ordinals.has(r.model_key)) ordinals.set(r.model_key, ordinals.size);
+        // mavjud modelga yangi rang (custom_model) — model raqami navbatini egallamaydi, lekin yangi kod oladi
+        if (!r.custom_model && !ordinals.has(r.model_key)) ordinals.set(r.model_key, ordinals.size);
         r._product_idx = productIdx++;  // har bir to'ldirilgan qator — bitta tovar (bitta kod)
       } else {
         r._product_idx = null;
@@ -101,7 +102,8 @@ const Grid = {
     calc.code = this.previewCode(row);
     if (this.baseCounter === null && !row.ms_product_id) {
       // Hisoblagich hali yuklanmagan — soxta 00001 o'rniga kutish belgisi (haqiqiy raqamni yuborishda server beradi)
-      calc.model_code = '…'; calc.articul = '…'; calc.code = '…';
+      calc.code = '…';
+      if (!row.custom_model) { calc.model_code = '…'; calc.articul = '…'; }
     }
     if (row.ms_product_id) {
       // Bazadan tanlangan mavjud tovar: artikul/kod/nom MoySklad'dagidek, model raqami ajratilmaydi
@@ -174,7 +176,8 @@ const Grid = {
       ms_article: defaultValues.ms_article || "",
       ms_code: defaultValues.ms_code || "",
       ms_name: defaultValues.ms_name || "",
-      ms_model_code: defaultValues.ms_model_code || ""
+      ms_model_code: defaultValues.ms_model_code || "",
+      custom_model: !!defaultValues.custom_model
     };
   },
 
