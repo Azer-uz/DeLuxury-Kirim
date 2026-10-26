@@ -590,6 +590,9 @@
               <button class="btn btn-secondary" id="btn-toggle-fullscreen" style="height: 34px; padding: 0.25rem 0.75rem; font-size: 0.78rem; font-weight: 700; white-space: nowrap;" title="To'liq ekranga yoyish / Kichraytirish">
                 <span id="fullscreen-icon">⛶</span> <span id="fullscreen-label">Katta ekran</span>
               </button>
+              <button class="btn btn-secondary" id="btn-open-product-search" title="Bazadagi (MoySklad) mavjud tovarni qidirib kirimga qo'shish (Ctrl+F)" style="height: 34px; padding: 0.25rem 0.75rem; font-size: 0.78rem; font-weight: 700; white-space: nowrap;">
+                <span>🔍</span> Bazadan tovar
+              </button>
               <button class="btn btn-ai" id="btn-open-ai-modal" style="height: 34px; padding: 0.25rem 0.75rem; font-size: 0.78rem; font-weight: 700; white-space: nowrap;">
                 <span>✨</span> AI Rasm
               </button>
@@ -980,6 +983,31 @@
        ========================================================= -->
 
   <!-- MODAL: QUICK ADD CONTRAGENT -->
+  <!-- Bazadan (MoySklad) mavjud tovarni qidirish -->
+  <div class="modal-backdrop" id="modal-product-search">
+    <div class="modal-window" style="max-width: 1100px; width: 96vw;">
+      <div class="modal-header">
+        <h3>🔍 Bazadan tovar qidirish (MoySklad)</h3>
+        <button class="btn-icon" id="btn-close-product-search">✕</button>
+      </div>
+      <div class="modal-body" style="padding-top: 0.5rem;">
+        <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+          <input type="text" id="ps-query" class="form-control" placeholder="Nomi, artikul, kod yoki Код модели... (kamida 2 belgi)" style="flex: 1; min-width: 260px;" autocomplete="off">
+          <span id="ps-status" style="font-size: 0.8rem; color: var(--text-muted);"></span>
+        </div>
+        <div style="margin-top: 0.6rem; max-height: 60vh; overflow: auto; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
+          <table class="history-table" id="ps-table">
+            <thead><tr>
+              <th>Nomi</th><th>Artikul</th><th>Kod</th><th>Brend</th><th>Rang</th><th>Razmer</th><th style="text-align:right">Tan narx</th><th style="text-align:right">Sotuv</th><th style="text-align:right">Qoldiq</th><th style="width: 110px;"></th>
+            </tr></thead>
+            <tbody id="ps-tbody"><tr><td colspan="10" style="color: var(--text-muted);">Qidiruv uchun yozing...</td></tr></tbody>
+          </table>
+        </div>
+        <div style="margin-top: 0.5rem; font-size: 0.78rem; color: var(--text-muted);">Tanlangan tovar jadvalga <b>mavjud tovar</b> sifatida qo'shiladi: artikul va kod MoySklad'dagidek qoladi, yangi tovar yaratilmaydi — faqat soni va narx kiritiladi. Enter — birinchi natijani qo'shish, Esc — yopish.</div>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-backdrop" id="modal-quick-cp">
     <div class="modal-window">
       <div class="modal-header">
@@ -1245,14 +1273,14 @@
   <script src="js/password-eye.js?v=1.0"></script>
   <script src="js/auth.js?v=1.0"></script>
   <script src="js/dashboard.js?v=2.0"></script>
-  <script src="js/supplies.js?v=3.1"></script>
-  <script src="js/references.js?v=3.4"></script>
-  <script src="js/grid.js?v=3.7"></script>
-  <script src="js/grid-extras.js?v=1.3"></script>
+  <script src="js/supplies.js?v=3.2"></script>
+  <script src="js/references.js?v=3.5"></script>
+  <script src="js/grid.js?v=3.9"></script>
+  <script src="js/grid-extras.js?v=1.5"></script>
   <script src="js/ai-scanner.js?v=4.0"></script>
   <script src="js/history.js"></script>
   <script src="js/cp-search.js?v=1.0"></script>
-  <script src="js/app.js?v=4.1"></script>
+  <script src="js/app.js?v=4.2"></script>
 
 </body>
 </html>

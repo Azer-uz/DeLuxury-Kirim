@@ -40,6 +40,42 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 // Toast notification helper
+// Oxirgi bosilgan tugma — tasdiq oynasi shu yerda chiqadi
+document.addEventListener('pointerdown', (e) => { window.__lastAnchor = e.target.closest('button, a, .btn-icon, [role=button]') || e.target; }, true);
+
+// Tasdiq so'rovi: brauzer confirm() o'rniga bosilgan tugma yonida kichik oyna. Promise<boolean | value>
+function confirmAt(message, opts = {}) {
+  return new Promise((resolve) => {
+    document.querySelectorAll('.confirm-pop, .confirm-pop-backdrop').forEach(el => el.remove());
+    const anchor = opts.anchor || window.__lastAnchor;
+    const choices = opts.choices || [
+      { label: opts.cancel || 'Bekor qilish', value: false, cls: 'btn-secondary' },
+      { label: opts.ok || 'Ha', value: true, cls: opts.danger ? 'btn-danger' : 'btn-primary' },
+    ];
+    const back = document.createElement('div'); back.className = 'confirm-pop-backdrop';
+    const pop = document.createElement('div'); pop.className = 'confirm-pop'; pop.setAttribute('role', 'dialog');
+    pop.innerHTML = `<div class="confirm-pop-msg">${String(message).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>')}</div>
+      <div class="confirm-pop-btns">${choices.map((c, i) => `<button type="button" class="btn btn-sm ${c.cls || 'btn-secondary'}" data-ci="${i}">${c.label}</button>`).join('')}</div>`;
+    document.body.appendChild(back); document.body.appendChild(pop);
+    const done = (v) => { pop.remove(); back.remove(); document.removeEventListener('keydown', onKey, true); resolve(v); };
+    const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(false); } };
+    document.addEventListener('keydown', onKey, true);
+    back.addEventListener('click', () => done(false));
+    pop.querySelectorAll('[data-ci]').forEach(b => b.onclick = () => done(choices[parseInt(b.getAttribute('data-ci'))].value));
+    // joylashuv: tugma ostida (sig'masa — ustida / markazda)
+    const r = anchor && anchor.getBoundingClientRect ? anchor.getBoundingClientRect() : null;
+    const pw = pop.offsetWidth, ph = pop.offsetHeight, vw = window.innerWidth, vh = window.innerHeight;
+    let top, left;
+    if (r && r.width && r.bottom > 0 && r.top < vh) {
+      top = r.bottom + 8; if (top + ph > vh - 8) top = Math.max(8, r.top - ph - 8);
+      left = Math.min(Math.max(8, r.left + r.width / 2 - pw / 2), vw - pw - 8);
+      pop.classList.add('anchored');
+    } else { top = Math.max(8, vh / 2 - ph / 2); left = Math.max(8, vw / 2 - pw / 2); }
+    pop.style.top = top + 'px'; pop.style.left = left + 'px';
+    const first = pop.querySelector('[data-ci="' + (choices.length - 1) + '"]'); if (first) first.focus();
+  });
+}
+
 function showToast(message, type = 'info') {
   const container = document.getElementById('toast-container');
   if (!container) return;
@@ -730,7 +766,7 @@ function setupQuickAddModals() {
 
     const selectedMode = document.querySelector('input[name="hierarchy-import-mode"]:checked')?.value || 'merge';
     if (selectedMode === 'replace') {
-      const ok = confirm("⚠️ DIQQAT: 'To'liq almashtirish' rejimi tanlandi!\nBazadagi barcha eski tovar turlari o'chiriladi va faqat yangi fayldagilar qoladi.\n\nHaqiqatan ham davom ettirasizmi?");
+      const ok = await confirmAt("⚠️ DIQQAT: 'To'liq almashtirish' rejimi tanlandi!\nBazadagi barcha eski tovar turlari o'chiriladi va faqat yangi fayldagilar qoladi.\n\nHaqiqatan ham davom ettirasizmi?");
       if (!ok) return;
     }
 
@@ -822,7 +858,7 @@ function setupAdminDropdown() {
   document.getElementById('admin-menu-logout')?.addEventListener('click', async (e) => {
     e.preventDefault();
     dropdown.style.display = 'none';
-    if (confirm("Haqiqatan ham tizimdan chiqmoqchimisiz?")) {
+    if (await confirmAt("Haqiqatan ham tizimdan chiqmoqchimisiz?")) {
       if (Grid.isDirty) await Grid.saveDraft();
       await Auth.logout();
     }
@@ -957,7 +993,7 @@ function setupTelegramSettings() {
     } finally { b.disabled = false; }
   });
   document.getElementById('btn-tg-clear')?.addEventListener('click', async () => {
-    if (!confirm("Bot tokeni o'chirilsinmi? Bildirishnomalar to'xtaydi. Keyin yangi token kiritishingiz mumkin.")) return;
+    if (!(await confirmAt("Bot tokeni o'chirilsinmi? Bildirishnomalar to'xtaydi. Keyin yangi token kiritishingiz mumkin."))) return;
     const resp = await fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ telegram_bot_token: ' ', telegram_enabled: false }) });
     const data = await resp.json();
     if (!resp.ok) return showToast(data.detail || "O'chirib bo'lmadi", 'error');
@@ -1047,10 +1083,10 @@ const AttributesUI = {
     document.querySelectorAll('[data-attr-del]').forEach(btn => btn.onclick = async () => {
       const id = btn.getAttribute('data-attr-del');
       const a = this.data.attributes.find(x => x.id === id);
-      if (!confirm(`"${a?.name}" maydonini MoySklad'dan o'chirasizmi?\nBarcha tovarlardagi shu maydon qiymatlari yo'qoladi. Bu amalni qaytarib bo'lmaydi.`)) return;
+      if (!(await confirmAt(`"${a?.name}" maydonini MoySklad'dan o'chirasizmi?\nBarcha tovarlardagi shu maydon qiymatlari yo'qoladi. Bu amalni qaytarib bo'lmaydi.`))) return;
       let resp = await fetch(`/api/attributes/${id}`, { method: 'DELETE' });
       let data = await resp.json();
-      if (resp.status === 409 && confirm(`${data.detail}\n\nBaribir o'chirilsinmi? (bog'lanish ham o'chadi)`)) {
+      if (resp.status === 409 && (await confirmAt(`${data.detail}\n\nBaribir o'chirilsinmi? (bog'lanish ham o'chadi)`))) {
         resp = await fetch(`/api/attributes/${id}?force=1`, { method: 'DELETE' });
         data = await resp.json();
       }
@@ -1090,7 +1126,7 @@ function setupAttributesUI() {
     const dictName = document.getElementById('attr-new-dict-name').value.trim();
     if (!name) return showToast('Maydon nomini kiriting', 'error');
     if (type === 'customentity' && !dictId && !dictName) return showToast('Spravochnikni tanlang yoki yangi nom kiriting', 'error');
-    if (!confirm(`MoySklad'da "${name}" (${AttributesUI.typeLabel(type)}) maydoni yaratilsinmi?`)) return;
+    if (!(await confirmAt(`MoySklad'da "${name}" (${AttributesUI.typeLabel(type)}) maydoni yaratilsinmi?`))) return;
     const resp = await fetch('/api/attributes', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, type, required: document.getElementById('attr-new-required').checked, dictionary_id: dictId || null, new_dictionary_name: dictId ? null : (dictName || name) })

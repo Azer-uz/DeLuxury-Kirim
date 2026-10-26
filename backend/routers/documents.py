@@ -203,8 +203,12 @@ def _check_rows(rows: List[Dict[str, Any]], header: Dict[str, Any], settings: Di
 
     seen_variants: Dict[tuple, int] = {}
     for idx, r in enumerate(rows, 1):
+        # Bazadan tanlangan MAVJUD tovar: ierarxiya/kolleksiya/rang/razmer tekshirilmaydi — tovar MoySklad'da allaqachon bor
+        ms_product_id = _txt(r.get("ms_product_id"))
         pt = refs.product_type(r.get("product_type"))
-        if not _txt(r.get("product_type")):
+        if ms_product_id:
+            pass
+        elif not _txt(r.get("product_type")):
             err(idx, "product_type", "'Вид товара' tanlanmagan!")
         elif not pt:
             err(idx, "product_type", f"'{_txt(r.get('product_type'))}' ierarxiyada yo'q — Manbalar bo'limiga qo'shing.")
@@ -212,7 +216,9 @@ def _check_rows(rows: List[Dict[str, Any]], header: Dict[str, Any], settings: Di
             err(idx, "product_type", f"'{pt['name']}' uchun guruh kodi belgilanmagan (Manbalar → Ierarxiya).")
 
         season_code = refs.season_code(r.get("collection"))
-        if not _txt(r.get("collection")):
+        if ms_product_id:
+            pass
+        elif not _txt(r.get("collection")):
             err(idx, "collection", "'Коллекция' kiritilmagan!")
         elif not season_code:
             err(idx, "collection", f"'{_txt(r.get('collection'))}' kolleksiyasi spravochnikda yo'q (mavsum kodi topilmadi).")
@@ -231,14 +237,14 @@ def _check_rows(rows: List[Dict[str, Any]], header: Dict[str, Any], settings: Di
 
         color = _txt(r.get("color"))
         color_code = refs.color_code(color)
-        if settings.get("color_enabled"):
+        if settings.get("color_enabled") and not ms_product_id:
             if not color:
                 err(idx, "color", "Rang tanlanmagan!")
             elif not color_code:
                 err(idx, "color", f"'{color}' rangi spravochnikda yo'q yoki uning qisqa kodi (BLK, WHT...) belgilanmagan.")
 
         size = _txt(r.get("size"))
-        if settings.get("size_enabled"):
+        if settings.get("size_enabled") and not ms_product_id:
             if not size:
                 err(idx, "size", "Razmer kiritilmagan!")
             elif is_multi_size(size):
@@ -246,7 +252,7 @@ def _check_rows(rows: List[Dict[str, Any]], header: Dict[str, Any], settings: Di
 
         custom_articul = _txt(r.get("articul")) if r.get("custom_articul") else ""
         model_key = _txt(r.get("model_key")) or f"row{idx}"
-        variant = ("custom", custom_articul) if custom_articul else (
+        variant = ("ms", ms_product_id) if ms_product_id else ("custom", custom_articul) if custom_articul else (
             model_key,
             color_code if settings.get("color_enabled") else "",
             normalize_size(size) if settings.get("size_enabled") else "",
@@ -260,6 +266,10 @@ def _check_rows(rows: List[Dict[str, Any]], header: Dict[str, Any], settings: Di
             "row_index": idx,
             "model_key": model_key,
             "custom_articul": custom_articul,
+            "ms_product_id": ms_product_id,
+            "ms_article": _txt(r.get("ms_article")) or _txt(r.get("articul")),
+            "ms_code": _txt(r.get("ms_code")) or _txt(r.get("code")),
+            "ms_name": _txt(r.get("ms_name")) or _txt(r.get("full_name")),
             "product_type": pt["name"] if pt else _txt(r.get("product_type")),
             "category": pt["category"] if pt else "",
             "group_name": pt["group_name"] if pt else "",
@@ -370,6 +380,8 @@ async def submit_to_moysklad(data: Dict[str, Any], request: Request, db: Session
         if key in _auto_filled:
             continue
         for it in prepared:
+            if it.get("ms_product_id"):
+                continue
             if not _txt(it.get(key)):
                 _missing.append({"row": it["row_index"], "field": key, "message": f"{it['row_index']}-qator: '{_labels.get(key, key)}' MoySklad'da majburiy — to'ldiring"})
     if _missing:
@@ -383,19 +395,25 @@ async def submit_to_moysklad(data: Dict[str, Any], request: Request, db: Session
         await _warn_duplicate_codes(code_stats["duplicates"])
     async with _allocation_lock:
         sync_counter(db, ms_max)
-        numbers = allocate_model_numbers(db, scope, [p["model_key"] for p in prepared if not p["custom_articul"]])
+        numbers = allocate_model_numbers(db, scope, [p["model_key"] for p in prepared if not p["custom_articul"] and not p["ms_product_id"]])
 
     items = []
     seen_products: Dict[tuple, int] = {}
     size_in_name = settings.get("size_enabled") and settings.get("size_in_name")
     for p in prepared:
-        if p["custom_articul"]:
+        if p["ms_product_id"]:
+            # Bazadan tanlangan mavjud tovar — artikul/kod MoySklad'dagidek, yangi raqam ajratilmaydi
+            model_code = ""
+            articul = p["ms_article"]
+            key = ("ms", p["ms_product_id"])
+        elif p["custom_articul"]:
             model_code = ""
             articul = p["custom_articul"]
+            key = product_key(articul, p["size"], settings)
         else:
             model_code = build_model_code(p["season_code"], p["group_code"], numbers[p["model_key"]])
             articul = build_articul(model_code, p["color_code"], settings)
-        key = product_key(articul, p["size"], settings)
+            key = product_key(articul, p["size"], settings)
         if key in seen_products:
             label = f"{articul} ({p['size']})" if key[1] else articul
             raise HTTPException(status_code=400, detail={"message": "Hujjatda xatoliklar mavjud!", "errors": [{
@@ -408,17 +426,18 @@ async def submit_to_moysklad(data: Dict[str, Any], request: Request, db: Session
             "model_code": model_code,
             "articul": articul,
             "product_key": key,
-            "full_name": build_full_name(p["product_type"], p["description"], p["brand"], p["factory_code"],
-                                         p["size"] if size_in_name else ""),
+            "full_name": (p["ms_name"] if p["ms_product_id"] and p["ms_name"] else
+                          build_full_name(p["product_type"], p["description"], p["brand"], p["factory_code"],
+                                          p["size"] if size_in_name else "")),
             **money,
         })
 
     # Tovar kodlari: MoySklad'dagi eng katta koddan keyin, ketma-ket, tovarga (artikul+razmer) doimiy bog'langan
     async with _allocation_lock:
         sync_counter(db, code_stats["max"], CODE_COUNTER)
-        codes = allocate_codes(db, scope, [it["product_key"] for it in items])
+        codes = allocate_codes(db, scope, [it["product_key"] for it in items if not it["ms_product_id"]])
     for it in items:
-        it["code"] = codes[it["product_key"]]
+        it["code"] = it["ms_code"] if it["ms_product_id"] else codes[it["product_key"]]
 
     total_sum_buy = round(sum(it["sum_buy"] for it in items), 2)
     total_sum_sale = round(sum(it["sum_sale"] for it in items), 2)

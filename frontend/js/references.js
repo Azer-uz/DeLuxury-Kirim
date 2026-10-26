@@ -246,7 +246,7 @@ const RefEdit = {
   },
   async remove(kind, id, label, refreshTab) {
     const k = this.kinds[kind]; if (!k) return;
-    if (!confirm(`"${label}" o'chirilsinmi?`)) return;
+    if (!(await confirmAt(`"${label}" o'chirilsinmi?`))) return;
     const res = await fetch(k.url(id), { method: 'DELETE' });
     const d = await res.json().catch(() => ({}));
     if (!res.ok) return showToast(d.detail || 'O\'chirib bo\'lmadi', 'error');
@@ -286,7 +286,13 @@ function renderReferencesUI(activeTab = 'ref-product-types') {
 // Razmer/Brend ro'yxatini MoySklad lug'atidan to'ldirish
 async function pullFromMoysklad(kind, tab) {
   const label = kind === 'sizes' ? 'Razmerlar' : 'Brendlar';
-  const replace = confirm(`${label} MoySklad lug'atidan to'ldiriladi.\n\nOK — MoySklad'da YO'Q lokal qiymatlar ham o'chiriladi (ro'yxat MoySklad bilan bir xil bo'ladi).\nBekor qilish — faqat yetishmayotganlar qo'shiladi.`);
+  const choice = await confirmAt(`${label} MoySklad lug'atidan to'ldiriladi. Qanday?`, { choices: [
+    { label: 'Bekor', value: null, cls: 'btn-secondary' },
+    { label: "Faqat yetishmaganlarni qo'shish", value: false, cls: 'btn-secondary' },
+    { label: "MoySklad bilan bir xil qilish (ortiqcha lokal o'chadi)", value: true, cls: 'btn-primary' },
+  ] });
+  if (choice === null) return;
+  const replace = choice;
   showToast('MoySklad\'dan o\'qilmoqda...', 'info');
   const res = await fetch(`/api/references/pull-moysklad/${kind}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ replace }) });
   const d = await res.json().catch(() => ({}));
@@ -358,7 +364,7 @@ async function msDictRename(id, oldName) {
   showToast('MoySklad\'da o\'zgartirildi', 'success'); loadMsDictValues();
 }
 async function msDictDelete(id, name) {
-  if (!confirm(`"${name}" MoySklad lug'atidan o'chirilsinmi?`)) return;
+  if (!(await confirmAt(`"${name}" MoySklad lug'atidan o'chirilsinmi?`))) return;
   const r = await fetch(`/api/references/moysklad-dict/${MsDicts.current}/${id}`, { method: 'DELETE' });
   const x = await r.json().catch(() => ({}));
   if (!r.ok) return showToast(x.detail || 'O\'chirilmadi', 'error');
@@ -1048,7 +1054,7 @@ function populateCategoryDatalist() {
 }
 
 async function deleteProductTypeItem(id, name) {
-  if (!confirm(`Haqiqatan ham "${name}" mahsulot turini o'chirmoqchimisiz?`)) return;
+  if (!(await confirmAt(`Haqiqatan ham "${name}" mahsulot turini o'chirmoqchimisiz?`))) return;
   try {
     const res = await fetch(`/api/references/product-type/${id}`, { method: 'DELETE' });
     if (res.ok) {
@@ -1062,7 +1068,7 @@ async function deleteProductTypeItem(id, name) {
 }
 
 async function deleteSeasonTypeItem(id) {
-  if (!confirm("Ushbu sezonni o'chirmoqchimisiz?")) return;
+  if (!(await confirmAt("Ushbu sezonni o'chirmoqchimisiz?"))) return;
   const res = await fetch(`/api/references/season-type/${id}`, { method: 'DELETE' });
   if (res.ok) {
     await References.init();
@@ -1072,7 +1078,7 @@ async function deleteSeasonTypeItem(id) {
 }
 
 async function deleteSizeItem(id) {
-  if (!confirm("Ushbu razmerni o'chirmoqchimisiz?")) return;
+  if (!(await confirmAt("Ushbu razmerni o'chirmoqchimisiz?"))) return;
   const res = await fetch(`/api/references/size-item/${id}`, { method: 'DELETE' });
   if (res.ok) {
     await References.init();

@@ -1153,7 +1153,7 @@ body.theme-light .grid-dropdown-item.active {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
-  color: #fff;
+  color: var(--text-main);
   font-size: 0.875rem;
   animation: slideInRight 0.3s ease-out;
   max-width: 400px;
@@ -3263,3 +3263,16 @@ body.theme-light .cell-suspect { background-color: rgba(234, 179, 8, 0.28) !impo
 .grid-hscroll::-webkit-scrollbar-track { background: rgba(148, 163, 184, 0.12); border-radius: 8px; }
 .grid-hscroll::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.55); border-radius: 8px; border: 3px solid transparent; background-clip: padding-box; }
 .table-responsive.grid-panning, .table-responsive.grid-panning * { cursor: grabbing !important; user-select: none !important; }
+
+/* Bazadan tanlangan mavjud tovar qatori */
+.excel-table tr.row-existing td { background: rgba(56, 189, 248, 0.06); }
+.excel-table tr.row-existing .cell-locked { opacity: 0.75; background: transparent !important; border-color: transparent !important; cursor: not-allowed; }
+.ms-badge { font-size: 0.8rem; }
+
+/* Tasdiq oynasi — bosilgan tugma yonida */
+.confirm-pop-backdrop { position: fixed; inset: 0; z-index: 10000; background: rgba(0, 0, 0, 0.18); }
+.confirm-pop { position: fixed; z-index: 10001; max-width: 420px; min-width: 240px; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); padding: 0.85rem 1rem; font-size: 0.875rem; animation: fadeIn 0.12s ease-out; }
+.confirm-pop.anchored::before { content: ''; position: absolute; top: -7px; left: calc(50% - 7px); width: 12px; height: 12px; background: var(--bg-card); border-left: 1px solid var(--border-subtle); border-top: 1px solid var(--border-subtle); transform: rotate(45deg); }
+.confirm-pop-msg { line-height: 1.45; margin-bottom: 0.7rem; white-space: normal; }
+.confirm-pop-btns { display: flex; gap: 0.45rem; justify-content: flex-end; flex-wrap: wrap; }
+.confirm-pop .btn-danger { background: var(--accent-red); color: #fff; border-color: var(--accent-red); }

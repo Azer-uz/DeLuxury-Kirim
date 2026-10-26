@@ -1,6 +1,8 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from typing import Dict, Any, List
-from backend.services.moysklad_service import MoySkladService
+from sqlalchemy.orm import Session
+from backend.database import get_db
+from backend.services.moysklad_service import MoySkladService, MoySkladError
 
 router = APIRouter(prefix="/api/moysklad", tags=["MoySklad Integration"])
 ms_service = MoySkladService()
@@ -48,6 +50,54 @@ async def create_counterparty_endpoint(data: Dict[str, Any]):
     desc = data.get("description")
     tag = data.get("tag") or data.get("group")
     return await ms_service.create_counterparty(name=name, phone=phone, description=desc, tag=tag)
+
+@router.get("/products/search")
+async def search_products(q: str = "", limit: int = 40, db: Session = Depends(get_db)):
+    """Bazadan (MoySklad) tovar qidirish: nomi / artikul / kod bo'yicha. Takroriy tovar kirimida mavjud tovarni tanlash uchun."""
+    q = (q or "").strip()
+    if len(q) < 2:
+        return {"items": [], "query": q}
+    from backend.services.attributes_service import AttributesService, get_attribute_map
+    try:
+        attributes = await AttributesService(ms_service).list_attributes()
+        mapping = get_attribute_map(db, attributes)
+    except MoySkladError:
+        attributes, mapping = [], {}
+    field_of = {v.get("attr_id"): k for k, v in mapping.items() if v.get("attr_id")}
+    try:
+        data = await ms_service._call("GET", "entity/assortment", params={"search": q, "limit": min(max(limit, 1), 100)})
+    except MoySkladError as e:
+        return {"items": [], "query": q, "error": str(e)}
+    items = []
+    for p in (data.get("rows", []) if isinstance(data, dict) else []):
+        if (p.get("meta") or {}).get("type") != "product" or p.get("archived"):
+            continue
+        fields: Dict[str, str] = {}
+        for a in p.get("attributes", []) or []:
+            key = field_of.get(a.get("id"))
+            if not key:
+                continue
+            v = a.get("value")
+            fields[key] = (v.get("name") if isinstance(v, dict) else ("" if v is None else str(v))) or ""
+        sale = 0.0
+        for sp in p.get("salePrices", []) or []:
+            if sp.get("value"):
+                sale = sp["value"] / 100.0
+                break
+        items.append({
+            "id": p.get("id"),
+            "name": p.get("name") or "",
+            "article": p.get("article") or "",
+            "code": p.get("code") or "",
+            "price_buy": ((p.get("buyPrice") or {}).get("value") or 0) / 100.0,
+            "price_sale": sale,
+            "stock": p.get("stock"),
+            "quantity": p.get("quantity"),
+            "fields": fields,
+            "path": p.get("pathName") or "",
+        })
+    return {"items": items, "query": q, "total": len(items)}
+
 
 @router.get("/next-doc-number")
 async def get_next_doc_number_endpoint():

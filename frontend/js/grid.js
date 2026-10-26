@@ -76,6 +76,7 @@ const Grid = {
     let productIdx = 0;
     this.rows.forEach(r => {
       if (!r.model_key) r.model_key = this.newModelKey();
+      if (r.ms_product_id) { r._product_idx = null; return; }  // mavjud tovar — raqam/kod navbatini egallamaydi
       if (this.isUsefulRow(r)) {
         if (!ordinals.has(r.model_key)) ordinals.set(r.model_key, ordinals.size);
         r._product_idx = productIdx++;  // har bir to'ldirilgan qator — bitta tovar (bitta kod)
@@ -98,6 +99,13 @@ const Grid = {
     const ord = map.has(row.model_key) ? map.get(row.model_key) : null;
     const calc = References.calculateRow(row, ord, this.baseCounter, this.getRate());
     calc.code = this.previewCode(row);
+    if (row.ms_product_id) {
+      // Bazadan tanlangan mavjud tovar: artikul/kod/nom MoySklad'dagidek, model raqami ajratilmaydi
+      calc.model_code = row.ms_model_code || '';
+      calc.articul = row.ms_article || '';
+      calc.code = row.ms_code || '';
+      calc.full_name = row.ms_name || calc.full_name;
+    }
     if (!this.isUsefulRow(row)) {
       // Bo'sh qator — model/artikul/kod ko'rsatilmaydi
       calc.model_code = '';
@@ -157,7 +165,12 @@ const Grid = {
       ai_ambiguous: defaultValues.ai_ambiguous || false,
       ai_alternative: defaultValues.ai_alternative || "",
       ai_confidence: defaultValues.ai_confidence !== undefined ? parseFloat(defaultValues.ai_confidence) : 1.0,
-      ai_low_confidence_fields: defaultValues.ai_low_confidence_fields || []
+      ai_low_confidence_fields: defaultValues.ai_low_confidence_fields || [],
+      ms_product_id: defaultValues.ms_product_id || "",
+      ms_article: defaultValues.ms_article || "",
+      ms_code: defaultValues.ms_code || "",
+      ms_name: defaultValues.ms_name || "",
+      ms_model_code: defaultValues.ms_model_code || ""
     };
   },
 
@@ -196,7 +209,7 @@ const Grid = {
   },
 
   async clearGrid() {
-    if (!confirm("Jadval tozalanib, yangi kirim boshlanadi. Joriy qoralama o'chiriladi. Davom etasizmi?")) return;
+    if (!(await confirmAt("Jadval tozalanib, yangi kirim boshlanadi. Joriy qoralama o'chiriladi. Davom etasizmi?"))) return;
     const oldId = this.activeDraftId;
     this.activeDraftId = null; this.isDirty = false;
     this.rows = [];

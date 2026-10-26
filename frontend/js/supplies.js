@@ -844,7 +844,7 @@ const SuppliesList = {
 
   async deleteDraft(draftId) {
     if (!draftId) return;
-    if (!confirm("Haqiqatan ham ushbu qoralamani o'chirmoqchimisiz?")) return;
+    if (!(await confirmAt("Haqiqatan ham ushbu qoralamani o'chirmoqchimisiz?"))) return;
 
     try {
       const resp = await fetch(`/api/documents/draft/${draftId}`, { method: 'DELETE' });

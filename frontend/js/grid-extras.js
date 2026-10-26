@@ -13,6 +13,93 @@
     ai_conf_min: 0.85,
   };
 
+  // ===== Bazadan (MoySklad) mavjud tovarni qidirib qo'shish =====
+  const PS_LOCKED = ['country', 'product_type', 'brand', 'factory_code', 'series', 'collection', 'season', 'size', 'color', 'description'];
+  const ProductSearch = {
+    items: [], timer: null, seq: 0,
+    open() {
+      const m = document.getElementById('modal-product-search'); if (!m) return;
+      m.classList.add('active');
+      const inp = document.getElementById('ps-query'); if (inp) { inp.value = ''; setTimeout(() => inp.focus(), 50); }
+      document.getElementById('ps-tbody').innerHTML = '<tr><td colspan="10" style="color: var(--text-muted);">Qidiruv uchun yozing...</td></tr>';
+      document.getElementById('ps-status').textContent = '';
+    },
+    close() { document.getElementById('modal-product-search')?.classList.remove('active'); },
+    esc(s) { return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'); },
+    async search(q) {
+      const my = ++this.seq; const st = document.getElementById('ps-status'); const tb = document.getElementById('ps-tbody');
+      if ((q || '').trim().length < 2) { tb.innerHTML = '<tr><td colspan="10" style="color: var(--text-muted);">Kamida 2 ta belgi yozing</td></tr>'; return; }
+      st.textContent = 'Qidirilmoqda...';
+      let d;
+      try { const r = await fetch(`/api/moysklad/products/search?q=${encodeURIComponent(q.trim())}`); d = await r.json(); } catch (e) { d = { items: [], error: 'Tarmoq xatosi' }; }
+      if (my !== this.seq) return;
+      this.items = d.items || [];
+      st.textContent = d.error ? ('Xato: ' + d.error) : `${this.items.length} ta topildi`;
+      if (!this.items.length) { tb.innerHTML = '<tr><td colspan="10" style="color: var(--text-muted);">Topilmadi</td></tr>'; return; }
+      const fmt = (n) => (n || n === 0) ? Number(n).toLocaleString('ru-RU') : '—';
+      tb.innerHTML = this.items.map((p, i) => `
+        <tr>
+          <td><b>${this.esc(p.name)}</b>${p.path ? `<div style="font-size:0.72rem;color:var(--text-muted)">${this.esc(p.path)}</div>` : ''}</td>
+          <td style="font-family: monospace;">${this.esc(p.article)}</td>
+          <td style="font-family: monospace;">${this.esc(p.code)}</td>
+          <td>${this.esc(p.fields?.brand)}</td><td>${this.esc(p.fields?.color)}</td><td>${this.esc(p.fields?.size)}</td>
+          <td style="text-align:right">${fmt(p.price_buy)}</td><td style="text-align:right">${fmt(p.price_sale)}</td>
+          <td style="text-align:right">${p.stock === undefined || p.stock === null ? '—' : fmt(p.stock)}</td>
+          <td><button class="btn btn-primary btn-sm" data-ps-add="${i}">➕ Qo'shish</button></td>
+        </tr>`).join('');
+      tb.querySelectorAll('[data-ps-add]').forEach(b => b.onclick = () => this.add(parseInt(b.getAttribute('data-ps-add'))));
+    },
+    add(i) {
+      const p = this.items[i]; if (!p) return;
+      const f = p.fields || {};
+      const row = Grid.createEmptyRow({
+        country: f.country || '', product_type: f.product_type || '', brand: f.brand || '', factory_code: f.factory_code || '',
+        series: f.series || '', collection: f.collection || '', season: f.season || '', size: f.size || '', color: f.color || '',
+        description: '', quantity: 1, price_buy: p.price_buy || 0, price_sale: p.price_sale || 0,
+        ms_product_id: p.id, ms_article: p.article || '', ms_code: p.code || '', ms_name: p.name || '', ms_model_code: f.model_code || ''
+      });
+      row.custom_articul = true; row.articul = p.article || ''; row.code = p.code || ''; row.full_name = p.name || '';
+      if (typeof Grid.pushUndo === 'function') Grid.pushUndo('Bazadan tovar qo\'shish');
+      // oxirgi qator bo'sh bo'lsa — uning o'rniga
+      const last = Grid.rows[Grid.rows.length - 1];
+      if (last && !Grid.isUsefulRow(last) && !last.ms_product_id) Grid.rows[Grid.rows.length - 1] = row; else Grid.rows.push(row);
+      Grid.recalculateAll(); Grid.render(); Grid.triggerAutoSave();
+      if (typeof showToast === 'function') showToast(`📦 Bazadan qo\'shildi: ${p.name} (${p.article || p.code})`, 'success');
+      const idx = Grid.rows.length - 1;
+      setTimeout(() => { const q = document.querySelector(`input[data-field="quantity"][data-row="${idx}"]`); if (q) { q.focus(); q.select(); } }, 60);
+    },
+    setup() {
+      document.getElementById('btn-open-product-search')?.addEventListener('click', () => this.open());
+      document.getElementById('btn-close-product-search')?.addEventListener('click', () => this.close());
+      document.getElementById('modal-product-search')?.addEventListener('click', (e) => { if (e.target.id === 'modal-product-search') this.close(); });
+      const inp = document.getElementById('ps-query');
+      inp?.addEventListener('input', () => { clearTimeout(this.timer); this.timer = setTimeout(() => this.search(inp.value), 350); });
+      inp?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); clearTimeout(this.timer); if (this.items.length && document.getElementById('ps-status').textContent.includes('topildi')) this.add(0); else this.search(inp.value); }
+        if (e.key === 'Escape') { e.preventDefault(); this.close(); }
+      });
+    }
+  };
+  Grid.ProductSearch = ProductSearch;
+  // Mavjud tovar qatorlari: identifikatsiya kataklari qulf, № katagida belgi
+  Grid.lockExistingRows = function () {
+    document.querySelectorAll('#grid-tbody tr').forEach((tr, i) => {
+      const r = this.rows[i]; if (!r || !r.ms_product_id) return;
+      tr.classList.add('row-existing');
+      tr.querySelectorAll('input, select, textarea').forEach(el => {
+        const f = el.getAttribute('data-field');
+        if (f && PS_LOCKED.includes(f)) { el.readOnly = true; el.disabled = el.tagName === 'SELECT'; el.classList.add('cell-locked'); el.title = "Bazadan tanlangan mavjud tovar — bu maydon MoySklad'dagidek qoladi"; }
+      });
+      const num = tr.querySelector('.cell-num');
+      if (num && !num.querySelector('.ms-badge')) num.insertAdjacentHTML('beforeend', ' <span class="ms-badge" title="Bazadan (MoySklad) tanlangan mavjud tovar">📦</span>');
+    });
+  };
+  document.addEventListener('DOMContentLoaded', () => {
+    ProductSearch.setup();
+    const origRender2 = Grid.render.bind(Grid);
+    Grid.render = function () { const r = origRender2(); Grid.lockExistingRows(); return r; };
+  });
+
   // ===== Jadvalni surish: tepada qo'shimcha gorizontal skroll (jadval uzun bo'lsa ham qo'l ostida) + g'ildirak tugmasi bilan surish =====
   Grid.setupPanning = function () {
     const box = document.querySelector('#receipt-table')?.closest('.table-responsive');
@@ -77,6 +164,13 @@
     const r = this.rows[idx];
     const out = [];
     if (!r || !this.isUsefulRow(r)) return out;
+    if (r.ms_product_id) {
+      const q = parseFloat(r.quantity) || 0, pb = parseFloat(r.price_buy) || 0, ps = parseFloat(r.price_sale) || 0;
+      if (q <= 0) out.push({ field: 'quantity', msg: 'Soni 0' });
+      if (pb === 0) out.push({ field: 'price_buy', msg: 'Tan narx kiritilmagan' });
+      if (ps === 0) out.push({ field: 'price_sale', msg: 'Sotuv narxi kiritilmagan' });
+      return out;  // mavjud tovar — spravochnik tekshiruvlari shart emas
+    }
     const S = this.SUSPECT;
     const cur = this.getCurrency();
     const qty = parseFloat(r.quantity) || 0;
@@ -238,10 +332,10 @@
     if (sel.length) return sel;
     return allowAll ? this.rows.map((_, i) => i) : [];
   };
-  Grid.bulkDelete = function () {
+  Grid.bulkDelete = async function () {
     const sel = this.selectedIdx();
     if (!sel.length) return;
-    if (!confirm(`${sel.length} ta qator o'chirilsinmi?`)) return;
+    if (!(await confirmAt(`${sel.length} ta qator o'chirilsinmi?`))) return;
     this.pushUndo(`${sel.length} ta qatorni o'chirish`);
     this.rows = this.rows.filter(r => !r._sel);
     if (!this.rows.length) this.rows = [this.createEmptyRow()];
@@ -274,7 +368,7 @@
     idx.forEach(i => { const r = this.rows[i]; r.markup_pct = pct; r.last_edited_field = 'markup_pct'; });
     this.recalculateAll(); this.render(); this.triggerAutoSave();
   };
-  Grid.bulkFill = function () {
+  Grid.bulkFill = async function () {
     const idx = this.targetIdx(false);
     if (!idx.length) return;
     const field = document.getElementById('bulk-field')?.value;
@@ -286,7 +380,7 @@
       idx.forEach(i => { const r = this.rows[i]; r.colors = r.colors || []; if (!r.colors.includes(val)) r.colors.push(val); r.color = r.colors[0]; });
     } else {
       const label = document.getElementById('bulk-field')?.selectedOptions[0]?.text || field;
-      if (!val && !confirm(`${idx.length} ta qatorda "${label}" tozalansinmi?`)) return;
+      if (!val && !(await confirmAt(`${idx.length} ta qatorda "${label}" tozalansinmi?`))) return;
       this.pushUndo(`${label} = "${val}" (${idx.length} qator)`);
       idx.forEach(i => { const r = this.rows[i]; r[field] = (field === 'quantity') ? (parseFloat(val) || 0) : val; r.last_edited_field = field; if (field === 'product_type') { r.ai_ambiguous = false; r.ai_alternative = ''; } });
     }
@@ -377,6 +471,7 @@
     if (!gridOpen) return;
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && (!inInput || document.activeElement.type === 'checkbox')) { e.preventDefault(); Grid.undo(); }
     if ((e.ctrlKey || e.metaKey) && e.key === 'Delete') { e.preventDefault(); Grid.bulkDelete(); }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f' && !e.shiftKey) { e.preventDefault(); Grid.ProductSearch.open(); }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a' && !inInput) { e.preventDefault(); Grid.selectAll(true); }
     if (e.key === 'Escape' && Grid.selectedIdx().length) Grid.clearSelection();
   });

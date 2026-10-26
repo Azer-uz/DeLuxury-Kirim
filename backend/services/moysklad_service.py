@@ -336,10 +336,21 @@ class MoySkladService:
           - kod boshqa tovarda band bo'lsa yoki shu artikul(+razmer) boshqa kod bilan mavjud bo'lsa — TO'XTATAMIZ
             (takror kod yoki takror tovar yaratilmasin);
           - qolganlari shu kod bilan bulk yaratiladi va MoySklad qaytargan kod tekshiriladi."""
-        by_code = await self.find_products_by_codes([it["code"] for it in items])
-        by_article = await self.find_products_by_articles([it["articul"] for it in items])
         existing: Dict[tuple, Dict[str, Any]] = {}
         conflicts: List[str] = []
+        # Bazadan tanlangan mavjud tovarlar — id bo'yicha olinadi, kod/artikul nazoratidan o'tmaydi
+        ms_items = [it for it in items if it.get("ms_product_id")]
+        for it in ms_items:
+            try:
+                prod = await self._call("GET", f"entity/product/{it['ms_product_id']}")
+            except MoySkladError as e:
+                raise MoySkladError(f"{it['row_index']}-qator: bazadan tanlangan tovar MoySklad'da topilmadi ({it.get('ms_name') or it.get('articul')}): {e}")
+            existing[it["product_key"]] = prod
+        items = [it for it in items if not it.get("ms_product_id")]
+        if not items:
+            return existing
+        by_code = await self.find_products_by_codes([it["code"] for it in items])
+        by_article = await self.find_products_by_articles([it["articul"] for it in items])
         for it in items:
             label = f"{it['row_index']}-qator ({it['articul']}{' / ' + it['size'] if match_size else ''})"
             owner = by_code.get(it["code"])
