@@ -3246,3 +3246,7 @@ body.theme-light .cell-suspect { background-color: rgba(234, 179, 8, 0.28) !impo
 
 /* MoySklad'da majburiy, lekin bo'sh katak */
 .cell-input.cell-required-empty { border-color: #f59e0b !important; background: rgba(245, 158, 11, 0.08) !important; }
+
+/* Manbalar: jami soni (ro'yxat boshida) va amallar yonma-yon */
+.ref-total { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem; }
+.history-table td .row-actions { display: inline-flex; flex-wrap: nowrap; white-space: nowrap; }

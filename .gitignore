@@ -25,3 +25,6 @@ temp/
 # Runtime kesh va sinov fayllari
 cache/
 *.xlsx
+
+# mijozga tayyorlangan hujjatlar
+Ranglar_tuzatilgan.txt

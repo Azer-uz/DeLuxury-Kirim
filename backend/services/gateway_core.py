@@ -93,7 +93,7 @@ class RateLimitGateway:
                                 pass
 
                         if resp.status_code in (200, 201):
-                            return resp.json()
+                            return resp.json() if resp.content.strip() else True  # DELETE ko'pincha bo'sh 200 qaytaradi
                         elif resp.status_code == 204:
                             return True
                         elif resp.status_code in (429, 503):

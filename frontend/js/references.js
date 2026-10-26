@@ -255,8 +255,7 @@ const RefEdit = {
 };
 function refBtns(kind, obj, label, tab) {
   const cur = JSON.stringify(obj).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
-  return `<button class="btn-icon" title="Tahrirlash" onclick='RefEdit.open("${kind}", ${obj.id}, JSON.parse(this.dataset.cur), "${tab}")' data-cur="${cur}">✏️</button>
-          <button class="btn-icon delete" title="O'chirish" onclick='RefEdit.remove("${kind}", ${obj.id}, this.dataset.label, "${tab}")' data-label="${String(label).replace(/"/g, '&quot;')}">🗑️</button>`;
+  return `<div class="row-actions"><button class="btn-icon" title="Tahrirlash" onclick='RefEdit.open("${kind}", ${obj.id}, JSON.parse(this.dataset.cur), "${tab}")' data-cur="${cur}">✏️</button><button class="btn-icon delete" title="O'chirish" onclick='RefEdit.remove("${kind}", ${obj.id}, this.dataset.label, "${tab}")' data-label="${String(label).replace(/"/g, '&quot;')}">🗑️</button></div>`;
 }
 
 function renderReferencesUI(activeTab = 'ref-product-types') {
@@ -279,7 +278,91 @@ function renderReferencesUI(activeTab = 'ref-product-types') {
     renderColorsSubtab(container);
   } else if (activeTab === 'ref-countries') {
     renderCountriesSubtab(container);
+  } else if (activeTab === 'ref-msdicts') {
+    renderMsDictsSubtab(container);
   }
+}
+
+// Razmer/Brend ro'yxatini MoySklad lug'atidan to'ldirish
+async function pullFromMoysklad(kind, tab) {
+  const label = kind === 'sizes' ? 'Razmerlar' : 'Brendlar';
+  const replace = confirm(`${label} MoySklad lug'atidan to'ldiriladi.\n\nOK — MoySklad'da YO'Q lokal qiymatlar ham o'chiriladi (ro'yxat MoySklad bilan bir xil bo'ladi).\nBekor qilish — faqat yetishmayotganlar qo'shiladi.`);
+  showToast('MoySklad\'dan o\'qilmoqda...', 'info');
+  const res = await fetch(`/api/references/pull-moysklad/${kind}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ replace }) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) return showToast(d.detail?.message || d.detail || 'Xato', 'error');
+  await References.init(); renderReferencesUI(tab);
+  showToast(`✅ ${d.message}`, 'success');
+}
+
+// MoySklad lug'atlari (доп. поля): qiymatlarni ko'rish, qo'shish, o'zgartirish, o'chirish
+const MsDicts = { list: [], current: null, values: [] };
+async function renderMsDictsSubtab(container) {
+  container.innerHTML = `<div style="color: var(--text-muted);">MoySklad'dan maydonlar o'qilmoqda...</div>`;
+  const res = await fetch('/api/references/moysklad-dicts');
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) { container.innerHTML = `<div class="alert alert-error">${d.detail || 'MoySklad bilan bog\'lanib bo\'lmadi'}</div>`; return; }
+  MsDicts.list = d.dicts || [];
+  if (!MsDicts.current || !MsDicts.list.find(x => x.dictionary_id === MsDicts.current)) MsDicts.current = MsDicts.list[0]?.dictionary_id || null;
+  const isAdmin = !!(Auth.user && Auth.user.is_admin);
+  container.innerHTML = `
+    <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.75rem;">
+      <label style="color: var(--text-muted); font-size: 0.85rem;">MoySklad maydoni (lug'at):</label>
+      <select id="msdict-select" class="form-control" style="max-width: 320px;">
+        ${MsDicts.list.map(x => `<option value="${x.dictionary_id}" ${x.dictionary_id === MsDicts.current ? 'selected' : ''}>${x.name}${x.required ? ' *' : ''}${x.field_label ? ' — ' + x.field_label : ''}</option>`).join('')}
+      </select>
+      ${isAdmin ? `<input type="text" id="msdict-new" class="form-control" placeholder="Yangi qiymat..." style="max-width: 220px;">
+      <button class="btn btn-primary btn-sm" id="msdict-add">➕ Qo'shish</button>` : ''}
+      <button class="btn btn-secondary btn-sm" id="msdict-refresh">🔄</button>
+    </div>
+    <div class="ref-total" id="msdict-total"></div>
+    <div style="max-height: 450px; overflow: auto; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
+      <table class="history-table">
+        <thead><tr><th style="width: 60px;">№</th><th>Qiymat (MoySklad)</th><th style="width: 90px; text-align: center;">Amallar</th></tr></thead>
+        <tbody id="msdict-tbody"><tr><td colspan="3" style="color: var(--text-muted);">Yuklanmoqda...</td></tr></tbody>
+      </table>
+    </div>
+    <div style="margin-top: 0.5rem; font-size: 0.78rem; color: var(--text-muted);">Qiymatlar to'g'ridan-to'g'ri MoySklad'da o'zgaradi. Tovarlarda ishlatilgan qiymatni MoySklad o'chirishga ruxsat bermaydi. Maydonlarning o'zini (qo'shish/o'chirish/bog'lash) Sozlamalar → Доп. поля bo'limida boshqaring.</div>`;
+  document.getElementById('msdict-select').onchange = (e) => { MsDicts.current = e.target.value; loadMsDictValues(); };
+  document.getElementById('msdict-refresh').onclick = () => loadMsDictValues();
+  document.getElementById('msdict-add')?.addEventListener('click', async () => {
+    const inp = document.getElementById('msdict-new'); const name = inp.value.trim();
+    if (!name) return showToast('Qiymat nomini kiriting', 'error');
+    const r = await fetch(`/api/references/moysklad-dict/${MsDicts.current}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+    const x = await r.json().catch(() => ({}));
+    if (!r.ok) return showToast(x.detail || 'Qo\'shilmadi', 'error');
+    inp.value = ''; showToast(x.status === 'exists' ? 'Bunday qiymat allaqachon bor' : 'MoySklad\'ga qo\'shildi', 'success'); loadMsDictValues();
+  });
+  document.getElementById('msdict-new')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('msdict-add').click(); });
+  loadMsDictValues();
+}
+async function loadMsDictValues() {
+  const tbody = document.getElementById('msdict-tbody'); if (!tbody || !MsDicts.current) return;
+  const isAdmin = !!(Auth.user && Auth.user.is_admin);
+  const res = await fetch(`/api/references/moysklad-dict/${MsDicts.current}`);
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) { tbody.innerHTML = `<tr><td colspan="3" style="color: var(--accent-red);">${d.detail || 'Xato'}</td></tr>`; return; }
+  MsDicts.values = d.values || [];
+  const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+  document.getElementById('msdict-total').innerHTML = `Jami: <b>${MsDicts.values.length}</b> ta`;
+  tbody.innerHTML = MsDicts.values.length ? MsDicts.values.map((v, i) => `
+    <tr><td>${i + 1}</td><td><b>${esc(v.name)}</b></td>
+    <td style="text-align: center;">${isAdmin ? `<div class="row-actions"><button class="btn-icon" title="Nomini o'zgartirish" onclick="msDictRename('${v.id}', this.dataset.n)" data-n="${esc(v.name)}">✏️</button><button class="btn-icon delete" title="MoySklad'dan o'chirish" onclick="msDictDelete('${v.id}', this.dataset.n)" data-n="${esc(v.name)}">🗑️</button></div>` : ''}</td></tr>`).join('')
+    : `<tr><td colspan="3" style="color: var(--text-muted);">Lug'at bo'sh</td></tr>`;
+}
+async function msDictRename(id, oldName) {
+  const name = prompt('Yangi nom:', oldName); if (!name || name.trim() === oldName) return;
+  const r = await fetch(`/api/references/moysklad-dict/${MsDicts.current}/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name.trim() }) });
+  const x = await r.json().catch(() => ({}));
+  if (!r.ok) return showToast(x.detail || 'O\'zgartirilmadi', 'error');
+  showToast('MoySklad\'da o\'zgartirildi', 'success'); loadMsDictValues();
+}
+async function msDictDelete(id, name) {
+  if (!confirm(`"${name}" MoySklad lug'atidan o'chirilsinmi?`)) return;
+  const r = await fetch(`/api/references/moysklad-dict/${MsDicts.current}/${id}`, { method: 'DELETE' });
+  const x = await r.json().catch(() => ({}));
+  if (!r.ok) return showToast(x.detail || 'O\'chirilmadi', 'error');
+  showToast('MoySklad\'dan o\'chirildi', 'success'); loadMsDictValues();
 }
 
 // 1. Ierarxiya Subtab with Sorting, Filtering, CRUD, and Import/Export
@@ -476,6 +559,7 @@ References.toggleSort = function(col) {
 function renderGroupsSubtab(container) {
   const list = References.data.groups || [];
   let html = `
+    <div class="ref-total">Jami: <b>${list.length}</b> ta</div>
     <div style="max-height: 450px; overflow: auto; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
       <table class="history-table">
         <thead>
@@ -508,6 +592,7 @@ function renderGroupsSubtab(container) {
 function renderSeasonsSubtab(container) {
   const list = References.data.seasons || [];
   let html = `
+    <div class="ref-total">Jami: <b>${list.length}</b> ta</div>
     <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
       <input type="text" id="new-season-coll" class="form-control" placeholder="Yangi kolleksiya (masalan SS27)" style="max-width: 200px;">
       <input type="text" id="new-season-code" class="form-control" placeholder="Kodi (masalan S27)" style="max-width: 150px;">
@@ -561,6 +646,7 @@ function renderSeasonsSubtab(container) {
 function renderSeasonTypesSubtab(container) {
   const list = References.data.season_types || [];
   let html = `
+    <div class="ref-total">Jami: <b>${list.length}</b> ta</div>
     <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
       <input type="text" id="new-season-type-name" class="form-control" placeholder="Yangi sezon nomi (masalan: Демисезон)..." style="max-width: 250px;">
       <button class="btn btn-primary btn-sm" id="btn-add-season-type">➕ Sezon qo'shish</button>
@@ -583,9 +669,7 @@ function renderSeasonTypesSubtab(container) {
         <td>${i + 1}</td>
         <td><b>${st.name}</b></td>
         <td><span class="badge badge-synced">✅ Faol</span></td>
-        <td style="text-align: center;">
-          <button class="btn-icon" title="Tahrirlash" onclick='RefEdit.open("seasonType", ${st.id}, {name: this.dataset.n}, "ref-season-types")' data-n="${String(st.name).replace(/"/g, '&quot;')}">✏️</button> <button class="btn-icon delete" title="O'chirish" onclick="deleteSeasonTypeItem(${st.id})">🗑️</button>
-        </td>
+        <td style="text-align: center;"><div class="row-actions"><button class="btn-icon" title="Tahrirlash" onclick='RefEdit.open("seasonType", ${st.id}, {name: this.dataset.n}, "ref-season-types")' data-n="${String(st.name).replace(/"/g, '&quot;')}">✏️</button> <button class="btn-icon delete" title="O'chirish" onclick="deleteSeasonTypeItem(${st.id})">🗑️</button></div></td>
       </tr>
     `;
   });
@@ -612,9 +696,11 @@ function renderSeasonTypesSubtab(container) {
 function renderSizesSubtab(container) {
   const list = References.data.sizes || [];
   let html = `
+    <div class="ref-total">Jami: <b>${list.length}</b> ta</div>
     <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
       <input type="text" id="new-size-name" class="form-control" placeholder="Yangi o'lcham (masalan: 58, 6XL)..." style="max-width: 250px;">
       <button class="btn btn-primary btn-sm" id="btn-add-size-item">➕ Razmer qo'shish</button>
+      <button class="btn btn-secondary btn-sm" id="btn-pull-sizes" title="MoySklad 'Размерный ряд' lug'atidagi qiymatlarni ro'yxatga olish">⬇️ MoySklad'dan to'ldirish</button>
     </div>
     <div style="max-height: 450px; overflow: auto; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
       <table class="history-table">
@@ -634,15 +720,14 @@ function renderSizesSubtab(container) {
         <td>${i + 1}</td>
         <td><span class="kbd" style="font-size: 0.95rem; font-weight: 700; color: #38bdf8;">${sz.name}</span></td>
         <td><span class="badge badge-synced">✅ Faol</span></td>
-        <td style="text-align: center;">
-          <button class="btn-icon" title="Tahrirlash" onclick='RefEdit.open("size", ${sz.id}, {name: this.dataset.n}, "ref-sizes")' data-n="${String(sz.name).replace(/"/g, '&quot;')}">✏️</button> <button class="btn-icon delete" title="O'chirish" onclick="deleteSizeItem(${sz.id})">🗑️</button>
-        </td>
+        <td style="text-align: center;"><div class="row-actions"><button class="btn-icon" title="Tahrirlash" onclick='RefEdit.open("size", ${sz.id}, {name: this.dataset.n}, "ref-sizes")' data-n="${String(sz.name).replace(/"/g, '&quot;')}">✏️</button> <button class="btn-icon delete" title="O'chirish" onclick="deleteSizeItem(${sz.id})">🗑️</button></div></td>
       </tr>
     `;
   });
   html += `</tbody></table></div>`;
   container.innerHTML = html;
 
+  document.getElementById('btn-pull-sizes')?.addEventListener('click', () => pullFromMoysklad('sizes', 'ref-sizes'));
   document.getElementById('btn-add-size-item')?.addEventListener('click', async () => {
     const name = document.getElementById('new-size-name').value.trim();
     if (!name) return alert("Razmer nomini kiriting!");
@@ -663,9 +748,11 @@ function renderSizesSubtab(container) {
 function renderBrandsSubtab(container) {
   const list = References.data.brands || [];
   let html = `
+    <div class="ref-total">Jami: <b>${list.length}</b> ta</div>
     <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
       <input type="text" id="new-brand-name" class="form-control" placeholder="Yangi brend nomi..." style="max-width: 250px;">
       <button class="btn btn-primary btn-sm" id="btn-add-brand-ref">➕ Brend qo'shish</button>
+      <button class="btn btn-secondary btn-sm" id="btn-pull-brands" title="MoySklad 'Бренд' lug'atidagi qiymatlarni ro'yxatga olish">⬇️ MoySklad'dan to'ldirish</button>
     </div>
     <div style="max-height: 450px; overflow: auto; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
       <table class="history-table">
@@ -692,6 +779,7 @@ function renderBrandsSubtab(container) {
   html += `</tbody></table></div>`;
   container.innerHTML = html;
 
+  document.getElementById('btn-pull-brands')?.addEventListener('click', () => pullFromMoysklad('brands', 'ref-brands'));
   document.getElementById('btn-add-brand-ref')?.addEventListener('click', async () => {
     const name = document.getElementById('new-brand-name').value.trim();
     if (!name) return alert("Brend nomini kiriting!");
@@ -714,6 +802,7 @@ function renderColorsSubtab(container) {
   const favCount = list.filter(c => c.is_favorite).length;
 
   let html = `
+    <div class="ref-total">Jami: <b>${list.length}</b> ta</div>
     <!-- Top Action & New Color Bar -->
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
       <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
@@ -739,6 +828,7 @@ function renderColorsSubtab(container) {
             <th style="width: 160px;">3 Harfli Kod (Artikul uchun)</th>
             <th style="width: 140px; text-align: center;">⭐ Tezkor (Top 10)</th>
             <th style="width: 90px; text-align: center;">Holat</th>
+            <th style="width: 80px; text-align: center;">Amallar</th>
           </tr>
         </thead>
         <tbody id="ref-colors-tbody">
@@ -755,7 +845,8 @@ function renderColorsSubtab(container) {
             <b>${c.name}</b>
           </div>
         </td>
-        <td style="font-size:0.8rem; color: var(--text-muted);">${((References.settings?.color_primary_lang || 'ru') === 'tr' ? c.name_ru : c.name_tr) || '—'}${c.name_en ? ` <span style="opacity:.7">/ ${c.name_en}</span>` : ''} <button class="btn-icon" title="Tahrirlash (nom, ruscha, inglizcha, kod)" onclick='RefEdit.open("color", ${c.id}, JSON.parse(this.dataset.cur), "ref-colors")' data-cur="${JSON.stringify({name: c.name, name_ru: c.name_ru || '', name_tr: c.name_tr || '', name_en: c.name_en || '', short_code: c.short_code || '', code_no: c.code_no || ''}).replace(/"/g, '&quot;')}">✏️</button></td>
+        <td style="font-size:0.8rem; color: var(--text-muted);">${((References.settings?.color_primary_lang || 'ru') === 'tr' ? c.name_ru : c.name_tr) || '—'}${c.name_en ? ` <span style="opacity:.7">/ ${c.name_en}</span>` : ''}</td>
+        <td style="text-align: center;"><div class="row-actions"><button class="btn-icon" title="Tahrirlash (nom, tarjimalar, kod)" onclick='RefEdit.open("color", ${c.id}, JSON.parse(this.dataset.cur), "ref-colors")' data-cur="${JSON.stringify({name: c.name, name_ru: c.name_ru || '', name_tr: c.name_tr || '', name_en: c.name_en || '', short_code: c.short_code || '', code_no: c.code_no || ''}).replace(/"/g, '&quot;')}">✏️</button><button class="btn-icon delete" title="O'chirish" onclick='RefEdit.remove("color", ${c.id}, this.dataset.label, "ref-colors")' data-label="${String(c.name).replace(/"/g, '&quot;')}">🗑️</button></div></td>
         <td>
           <input type="text" 
             class="form-control color-short-code-input" 
@@ -867,6 +958,7 @@ function renderColorsSubtab(container) {
 function renderCountriesSubtab(container) {
   const list = References.data.countries || [];
   let html = `
+    <div class="ref-total">Jami: <b>${list.length}</b> ta</div>
     <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
       <input type="text" id="new-country-name" class="form-control" placeholder="Yangi mamlakat..." style="max-width: 250px;">
       <button class="btn btn-primary btn-sm" id="btn-add-country-ref">➕ Mamlakat qo'shish</button>

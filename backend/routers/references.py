@@ -316,6 +316,155 @@ def delete_size_item(sz_id: int, db: Session = Depends(get_db)):
         db.commit()
     return {"status": "deleted"}
 
+# ================= MOYSKLAD LUG'ATLARI (Manbalar → MoySklad maydonlari) =================
+async def _ms_dict_meta(db: Session):
+    """MoySklad atributlari (faqat lug'atli) + ilova maydoni bog'lanishi"""
+    from backend.services.attributes_service import AttributesService, get_attribute_map, APP_FIELDS
+    svc = AttributesService(moysklad_service)
+    attributes = await svc.list_attributes()
+    mapping = get_attribute_map(db, attributes)
+    labels = {f["key"]: f["label"] for f in APP_FIELDS}
+    field_of = {v.get("attr_id"): k for k, v in mapping.items() if v.get("attr_id")}
+    out = []
+    for a in attributes:
+        if not a.get("dictionary_id"):
+            continue
+        key = field_of.get(a["id"])
+        out.append({"attr_id": a["id"], "name": a["name"], "required": bool(a.get("required")),
+                    "dictionary_id": a["dictionary_id"], "field": key, "field_label": labels.get(key) if key else None})
+    return out, attributes, mapping
+
+
+async def _ms_dict_values(dict_id: str) -> List[Dict[str, Any]]:
+    out, offset = [], 0
+    while True:
+        data = await moysklad_service._call("GET", f"entity/customentity/{dict_id}", params={"limit": 1000, "offset": offset})
+        rows = data.get("rows", []) if isinstance(data, dict) else []
+        out += [{"id": r.get("id"), "name": r.get("name") or ""} for r in rows]
+        if len(rows) < 1000:
+            break
+        offset += 1000
+    return out
+
+
+def _clear_dict_cache():
+    try:
+        from backend.routers.attributes import _DICT_CACHE
+        _DICT_CACHE.clear()
+    except Exception:
+        pass
+
+
+@router.get("/moysklad-dicts")
+async def moysklad_dicts(db: Session = Depends(get_db)):
+    """Manbalar → MoySklad maydonlari: lug'atli atributlar ro'yxati"""
+    try:
+        dicts, _, _ = await _ms_dict_meta(db)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"MoySklad'dan maydonlar olinmadi: {e}")
+    return {"dicts": dicts}
+
+
+@router.get("/moysklad-dict/{dict_id}")
+async def moysklad_dict_values(dict_id: str):
+    try:
+        values = await _ms_dict_values(dict_id)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"MoySklad lug'ati o'qilmadi: {e}")
+    return {"dictionary_id": dict_id, "values": values, "total": len(values)}
+
+
+@router.post("/moysklad-dict/{dict_id}")
+async def moysklad_dict_add(dict_id: str, data: Dict[str, Any], request: Request):
+    """MoySklad lug'atiga yangi qiymat (admin)"""
+    require_admin(request)
+    name = _clean(data.get("name"))
+    if not name:
+        raise HTTPException(status_code=400, detail="Qiymat nomi bo'sh")
+    existing = {v["name"].strip().lower(): v for v in await _ms_dict_values(dict_id)}
+    if name.lower() in existing:
+        return {"status": "exists", "value": existing[name.lower()]}
+    try:
+        res = await moysklad_service._call("POST", f"entity/customentity/{dict_id}", json_data={"name": name})
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"MoySklad'ga yozilmadi: {e}")
+    _clear_dict_cache()
+    return {"status": "created", "value": {"id": (res or {}).get("id"), "name": (res or {}).get("name") or name}}
+
+
+@router.put("/moysklad-dict/{dict_id}/{value_id}")
+async def moysklad_dict_rename(dict_id: str, value_id: str, data: Dict[str, Any], request: Request):
+    require_admin(request)
+    name = _clean(data.get("name"))
+    if not name:
+        raise HTTPException(status_code=400, detail="Qiymat nomi bo'sh")
+    try:
+        res = await moysklad_service._call("PUT", f"entity/customentity/{dict_id}/{value_id}", json_data={"name": name})
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"MoySklad'da o'zgartirilmadi: {e}")
+    _clear_dict_cache()
+    return {"status": "updated", "value": {"id": value_id, "name": (res or {}).get("name") or name}}
+
+
+@router.delete("/moysklad-dict/{dict_id}/{value_id}")
+async def moysklad_dict_delete(dict_id: str, value_id: str, request: Request):
+    """MoySklad lug'atidan qiymatni o'chirish (admin). Tovarlarda ishlatilgan bo'lsa MoySklad rad etadi."""
+    require_admin(request)
+    try:
+        await moysklad_service._call("DELETE", f"entity/customentity/{dict_id}/{value_id}")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"MoySklad'dan o'chirilmadi: {e}")
+    _clear_dict_cache()
+    return {"status": "deleted"}
+
+
+@router.post("/pull-moysklad/{kind}")
+async def pull_moysklad(kind: str, data: Dict[str, Any], request: Request, db: Session = Depends(get_db)):
+    """Razmer/Brend ro'yxatini MoySklad lug'atidan to'ldirish. replace=true bo'lsa MoySklad'da yo'q lokal qiymatlar o'chiriladi."""
+    require_admin(request)
+    spec = {"sizes": ("size", ("Размерный ряд", "Размер"), SizeItem), "brands": ("brand", ("Бренд",), Brand)}
+    if kind not in spec:
+        raise HTTPException(status_code=400, detail="kind: sizes | brands")
+    field, fallbacks, Model = spec[kind]
+    try:
+        dicts, attributes, mapping = await _ms_dict_meta(db)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"MoySklad'dan maydonlar olinmadi: {e}")
+    by_id = {a["id"]: a for a in attributes}
+    attr = by_id.get((mapping.get(field) or {}).get("attr_id") or "")
+    if not attr:
+        attr = next((a for a in attributes if (a.get("name") or "").strip().lower() in [f.lower() for f in fallbacks]), None)
+    dict_id = (attr or {}).get("dictionary_id")
+    if not dict_id:
+        raise HTTPException(status_code=400, detail=f"'{field}' maydoni MoySklad lug'atiga bog'lanmagan (Sozlamalar → Доп. поля)")
+    values = await _ms_dict_values(dict_id)
+    replace = bool(data.get("replace"))
+    existing = {o.name.strip().lower(): o for o in db.query(Model).all()}
+    added, matched, removed = [], 0, []
+    for i, v in enumerate(values):
+        nm = v["name"].strip()
+        if not nm:
+            continue
+        o = existing.get(nm.lower())
+        if o:
+            o.status = "synced"; o.moysklad_id = v["id"] if hasattr(o, "moysklad_id") else None
+            if hasattr(o, "sort_order"): o.sort_order = i
+            matched += 1
+        else:
+            kwargs = {"name": nm, "status": "synced"}
+            if hasattr(Model, "moysklad_id"): kwargs["moysklad_id"] = v["id"]
+            if hasattr(Model, "sort_order"): kwargs["sort_order"] = i
+            o = Model(**kwargs); db.add(o); existing[nm.lower()] = o; added.append(nm)
+    if replace:
+        ms_names = {v["name"].strip().lower() for v in values}
+        for o in list(existing.values()):
+            if o.name.strip().lower() not in ms_names:
+                removed.append(o.name); db.delete(o)
+    db.commit()
+    return {"status": "ok", "attribute": attr.get("name"), "moysklad_total": len(values), "added": added, "matched": matched, "removed": removed,
+            "message": f"{attr.get('name')}: MoySklad'da {len(values)} ta, qo'shildi {len(added)}, mos {matched}, o'chirildi {len(removed)}"}
+
+
 # ================= TAHRIRLASH / O'CHIRISH (Manbalar) =================
 def _clean(v) -> str:
     return (v or "").strip()
