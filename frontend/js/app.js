@@ -891,6 +891,14 @@ function applySettingsUI() {
   setVal('set-usd-enabled', s.usd_enabled);
   setVal('set-company-name', s.company_name);
   setVal('set-allowed-logins', s.allowed_logins);
+  setVal('set-tg-enabled', s.telegram_enabled);
+  setVal('set-tg-token', s.telegram_bot_token);
+  setVal('set-tg-admins', s.telegram_admin_ids);
+  setVal('set-tg-managers', s.telegram_manager_ids);
+  const tgHint = document.getElementById('tg-token-hint');
+  if (tgHint) tgHint.textContent = s.telegram_bot_token_set ? "Token saqlangan (niqoblangan ko'rinishda). Almashtirish uchun yangisini yozing." : "Token kiritilmagan — bildirishnomalar yuborilmaydi.";
+  ['btn-tg-test', 'btn-tg-save', 'btn-tg-clear'].forEach(id => { const b = document.getElementById(id); if (b) b.style.display = isAdmin ? '' : 'none'; });
+  refreshTelegramStatus();
   const saveBtn = document.getElementById('btn-save-app-settings');
   if (saveBtn) saveBtn.style.display = isAdmin ? '' : 'none';
   const counterBtn = document.getElementById('btn-update-counter');
@@ -906,6 +914,52 @@ function applySettingsUI() {
   }
   syncCurrencyUI();
 }
+
+async function refreshTelegramStatus() {
+  const badge = document.getElementById('tg-status-badge');
+  const uname = document.getElementById('tg-status-username');
+  if (!badge) return;
+  try {
+    const r = await fetch('/api/telegram/status');
+    const d = await r.json();
+    if (!d.configured) { badge.textContent = '⚪ Bot ulanmagan'; badge.style.cssText = 'background: var(--bg-hover); color: var(--text-muted);'; uname.textContent = ''; }
+    else if (!d.valid) { badge.textContent = '❌ Token noto\'g\'ri'; badge.style.cssText = 'background: rgba(248,113,113,.15); color: #f87171;'; uname.textContent = ''; }
+    else if (!d.enabled) { badge.textContent = '⏸ O\'chirilgan'; badge.style.cssText = 'background: rgba(251,191,36,.15); color: #fbbf24;'; uname.textContent = '@' + d.username; }
+    else { badge.textContent = '✅ Bot Faol'; badge.className = 'badge badge-synced'; badge.style.cssText = ''; uname.textContent = '@' + d.username + (d.recipients.length ? ` · ${d.recipients.length} ta qabul qiluvchi` : ' · qabul qiluvchi yo\'q'); }
+  } catch (e) { badge.textContent = '❓ Holat noma\'lum'; }
+}
+
+function setupTelegramSettings() {
+  const payload = () => ({
+    telegram_enabled: document.getElementById('set-tg-enabled')?.checked,
+    telegram_bot_token: document.getElementById('set-tg-token')?.value || '',
+    telegram_admin_ids: document.getElementById('set-tg-admins')?.value || '',
+    telegram_manager_ids: document.getElementById('set-tg-managers')?.value || '',
+  });
+  document.getElementById('btn-tg-save')?.addEventListener('click', async () => {
+    const resp = await fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload()) });
+    const data = await resp.json();
+    if (!resp.ok) return showToast(data.detail || "Saqlab bo'lmadi", 'error');
+    References.settings = data; applySettingsUI(); showToast('Telegram sozlamalari saqlandi', 'success');
+  });
+  document.getElementById('btn-tg-test')?.addEventListener('click', async () => {
+    const b = document.getElementById('btn-tg-test'); b.disabled = true;
+    try {
+      const p = payload();
+      const resp = await fetch('/api/telegram/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: p.telegram_bot_token, ids: [p.telegram_admin_ids, p.telegram_manager_ids].filter(Boolean).join(',') }) });
+      const data = await resp.json();
+      showToast(resp.ok ? `${data.message} (@${data.username})` : (data.detail || 'Yuborilmadi'), resp.ok ? 'success' : 'error');
+    } finally { b.disabled = false; }
+  });
+  document.getElementById('btn-tg-clear')?.addEventListener('click', async () => {
+    if (!confirm("Bot tokeni o'chirilsinmi? Bildirishnomalar to'xtaydi. Keyin yangi token kiritishingiz mumkin.")) return;
+    const resp = await fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ telegram_bot_token: ' ', telegram_enabled: false }) });
+    const data = await resp.json();
+    if (!resp.ok) return showToast(data.detail || "O'chirib bo'lmadi", 'error');
+    References.settings = data; applySettingsUI(); showToast('Bot uzildi', 'success');
+  });
+}
+document.addEventListener('DOMContentLoaded', setupTelegramSettings);
 
 // ================= MoySklad доп. поля (Sozlamalar) =================
 const AttributesUI = {

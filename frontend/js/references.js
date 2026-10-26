@@ -210,6 +210,55 @@ const References = {
 };
 
 // UI Render for Manbalar & Ierarxiya
+
+// ================= Umumiy tahrirlash oynasi (Manbalar) =================
+const RefEdit = {
+  kinds: {
+    group:       { title: 'Guruhni tahrirlash',    url: (id) => `/api/references/group/${id}`,       fields: [['name', 'Guruh nomi'], ['code', 'Artikul kodi (3 harf)']] },
+    season:      { title: 'Kolleksiyani tahrirlash', url: (id) => `/api/references/season/${id}`,    fields: [['collection', 'Kolleksiya (AW26)'], ['code', 'Artikul kodi (A26)']] },
+    seasonType:  { title: 'Sezonni tahrirlash',    url: (id) => `/api/references/season-type/${id}`, fields: [['name', 'Sezon nomi']] },
+    size:        { title: 'Razmerni tahrirlash',   url: (id) => `/api/references/size-item/${id}`,   fields: [['name', 'Razmer']] },
+    brand:       { title: 'Brendni tahrirlash',    url: (id) => `/api/references/brand/${id}`,       fields: [['name', 'Brend nomi']] },
+    country:     { title: 'Mamlakatni tahrirlash', url: (id) => `/api/references/country/${id}`,     fields: [['name', 'Mamlakat nomi']] },
+    color:       { title: 'Rangni tahrirlash',     url: (id) => `/api/references/color/${id}`,       fields: [['name', 'Rang nomi (ruscha)'], ['name_tr', 'Turkcha nomi'], ['name_en', 'Inglizcha nomi'], ['short_code', '3 harfli kod'], ['code_no', '№ No']] },
+  },
+  open(kind, id, current, refreshTab) {
+    const k = this.kinds[kind]; if (!k) return;
+    let m = document.getElementById('ref-edit-modal');
+    if (!m) {
+      m = document.createElement('div'); m.id = 'ref-edit-modal'; m.className = 'modal';
+      m.innerHTML = `<div class="modal-content" style="max-width:460px;"><div class="modal-header"><h3 id="ref-edit-title"></h3><button class="btn-icon" onclick="document.getElementById('ref-edit-modal').classList.remove('active')">✖</button></div>
+        <div class="modal-body" id="ref-edit-body"></div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:0.5rem; padding:0.75rem 1rem;"><button class="btn btn-secondary" onclick="document.getElementById('ref-edit-modal').classList.remove('active')">Bekor</button><button class="btn btn-primary" id="ref-edit-save">💾 Saqlash</button></div></div>`;
+      document.body.appendChild(m);
+    }
+    m.querySelector('#ref-edit-title').textContent = k.title;
+    m.querySelector('#ref-edit-body').innerHTML = k.fields.map(([f, label]) => `<label class="form-label" style="margin-top:0.5rem;">${label}</label><input class="form-control" data-f="${f}" value="${String(current[f] ?? '').replace(/"/g, '&quot;')}">`).join('');
+    m.querySelector('#ref-edit-save').onclick = async () => {
+      const body = {}; m.querySelectorAll('[data-f]').forEach(i => { body[i.dataset.f] = i.value.trim(); });
+      const res = await fetch(k.url(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) return showToast(d.detail || 'Saqlab bo\'lmadi', 'error');
+      m.classList.remove('active'); await References.init(); renderReferencesUI(refreshTab); showToast('Saqlandi', 'success');
+    };
+    m.classList.add('active');
+    setTimeout(() => m.querySelector('[data-f]')?.focus(), 50);
+  },
+  async remove(kind, id, label, refreshTab) {
+    const k = this.kinds[kind]; if (!k) return;
+    if (!confirm(`"${label}" o'chirilsinmi?`)) return;
+    const res = await fetch(k.url(id), { method: 'DELETE' });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) return showToast(d.detail || 'O\'chirib bo\'lmadi', 'error');
+    await References.init(); renderReferencesUI(refreshTab); showToast('O\'chirildi', 'success');
+  }
+};
+function refBtns(kind, obj, label, tab) {
+  const cur = JSON.stringify(obj).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+  return `<button class="btn-icon" title="Tahrirlash" onclick='RefEdit.open("${kind}", ${obj.id}, JSON.parse(this.dataset.cur), "${tab}")' data-cur="${cur}">✏️</button>
+          <button class="btn-icon delete" title="O'chirish" onclick='RefEdit.remove("${kind}", ${obj.id}, this.dataset.label, "${tab}")' data-label="${String(label).replace(/"/g, '&quot;')}">🗑️</button>`;
+}
+
 function renderReferencesUI(activeTab = 'ref-product-types') {
   const container = document.getElementById('ref-content-container');
   if (!container) return;
@@ -435,6 +484,7 @@ function renderGroupsSubtab(container) {
             <th>Группа (Guruh)</th>
             <th>Артикул Kodi (3 harf)</th>
             <th>Holat</th>
+            <th style="width:90px;">Amallar</th>
           </tr>
         </thead>
         <tbody>
@@ -446,6 +496,7 @@ function renderGroupsSubtab(container) {
         <td><b>${g.name}</b></td>
         <td><span class="kbd" style="font-size: 0.9rem; font-weight: 700; color: #fbbf24;">${g.code}</span></td>
         <td><span class="badge badge-synced">✅ Faol</span></td>
+        <td>${refBtns('group', g, g.name, 'ref-groups')}</td>
       </tr>
     `;
   });
@@ -470,6 +521,7 @@ function renderSeasonsSubtab(container) {
             <th>Коллекция</th>
             <th>Артикул Kodi</th>
             <th>Holat</th>
+            <th style="width:90px;">Amallar</th>
           </tr>
         </thead>
         <tbody>
@@ -481,6 +533,7 @@ function renderSeasonsSubtab(container) {
         <td><b>${s.collection}</b></td>
         <td><span class="kbd" style="font-size: 0.9rem; font-weight: 700; color: #38bdf8;">${s.code}</span></td>
         <td><span class="badge badge-synced">✅ Faol</span></td>
+        <td>${refBtns('season', s, s.collection, 'ref-seasons')}</td>
       </tr>
     `;
   });
@@ -531,7 +584,7 @@ function renderSeasonTypesSubtab(container) {
         <td><b>${st.name}</b></td>
         <td><span class="badge badge-synced">✅ Faol</span></td>
         <td style="text-align: center;">
-          <button class="btn-icon delete" title="O'chirish" onclick="deleteSeasonTypeItem(${st.id})">🗑️</button>
+          <button class="btn-icon" title="Tahrirlash" onclick='RefEdit.open("seasonType", ${st.id}, {name: this.dataset.n}, "ref-season-types")' data-n="${String(st.name).replace(/"/g, '&quot;')}">✏️</button> <button class="btn-icon delete" title="O'chirish" onclick="deleteSeasonTypeItem(${st.id})">🗑️</button>
         </td>
       </tr>
     `;
@@ -582,7 +635,7 @@ function renderSizesSubtab(container) {
         <td><span class="kbd" style="font-size: 0.95rem; font-weight: 700; color: #38bdf8;">${sz.name}</span></td>
         <td><span class="badge badge-synced">✅ Faol</span></td>
         <td style="text-align: center;">
-          <button class="btn-icon delete" title="O'chirish" onclick="deleteSizeItem(${sz.id})">🗑️</button>
+          <button class="btn-icon" title="Tahrirlash" onclick='RefEdit.open("size", ${sz.id}, {name: this.dataset.n}, "ref-sizes")' data-n="${String(sz.name).replace(/"/g, '&quot;')}">✏️</button> <button class="btn-icon delete" title="O'chirish" onclick="deleteSizeItem(${sz.id})">🗑️</button>
         </td>
       </tr>
     `;
@@ -621,6 +674,7 @@ function renderBrandsSubtab(container) {
             <th>№</th>
             <th>Brend Nomi</th>
             <th>Holat</th>
+            <th style="width:90px;">Amallar</th>
           </tr>
         </thead>
         <tbody>
@@ -631,6 +685,7 @@ function renderBrandsSubtab(container) {
         <td>${i + 1}</td>
         <td><b>${b.name}</b></td>
         <td><span class="badge badge-synced">✅ Faol</span></td>
+        <td>${refBtns('brand', b, b.name, 'ref-brands')}</td>
       </tr>
     `;
   });
@@ -664,6 +719,7 @@ function renderColorsSubtab(container) {
       <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
         <input type="text" id="new-color-name" class="form-control" placeholder="Rang nomi (masalan: Safir)..." style="max-width: 180px;">
         <input type="text" id="new-color-code" class="form-control" placeholder="3 ta harf (SAF)..." maxlength="5" style="max-width: 130px; text-transform: uppercase;">
+        <input type="text" id="new-color-tr" class="form-control" placeholder="Turkcha (Siyah)..." style="max-width: 150px;">
         <input type="number" id="new-color-no" class="form-control" placeholder="№ No..." style="max-width: 80px;">
         <button class="btn btn-primary btn-sm" id="btn-add-color-ref">➕ Rang qo'shish</button>
       </div>
@@ -679,6 +735,7 @@ function renderColorsSubtab(container) {
           <tr>
             <th style="width: 60px;">№ No</th>
             <th>Rang Nomi</th>
+            <th style="width: 170px;">Turkcha / Inglizcha</th>
             <th style="width: 160px;">3 Harfli Kod (Artikul uchun)</th>
             <th style="width: 140px; text-align: center;">⭐ Tezkor (Top 10)</th>
             <th style="width: 90px; text-align: center;">Holat</th>
@@ -698,6 +755,7 @@ function renderColorsSubtab(container) {
             <b>${c.name}</b>
           </div>
         </td>
+        <td style="font-size:0.8rem; color: var(--text-muted);">${c.name_tr || '—'}${c.name_en ? ` <span style="opacity:.7">/ ${c.name_en}</span>` : ''} <button class="btn-icon" title="Tahrirlash (nom, turkcha, kod)" onclick='RefEdit.open("color", ${c.id}, JSON.parse(this.dataset.cur), "ref-colors")' data-cur="${JSON.stringify({name: c.name, name_tr: c.name_tr || '', name_en: c.name_en || '', short_code: c.short_code || '', code_no: c.code_no || ''}).replace(/"/g, '&quot;')}">✏️</button></td>
         <td>
           <input type="text" 
             class="form-control color-short-code-input" 
@@ -739,7 +797,7 @@ function renderColorsSubtab(container) {
       const res = await fetch('/api/references/color', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, short_code, code_no: code_no ? parseInt(code_no) : null })
+        body: JSON.stringify({ name, short_code, code_no: code_no ? parseInt(code_no) : null, name_tr: (document.getElementById('new-color-tr')?.value || '').trim() })
       });
       const data = await res.json();
       if (!res.ok) {
@@ -820,6 +878,7 @@ function renderCountriesSubtab(container) {
             <th>№</th>
             <th>Mamlakat Nomi</th>
             <th>Holat</th>
+            <th style="width:90px;">Amallar</th>
           </tr>
         </thead>
         <tbody>
@@ -830,6 +889,7 @@ function renderCountriesSubtab(container) {
         <td>${i + 1}</td>
         <td><b>${cnt.name}</b></td>
         <td><span class="badge badge-synced">✅ Faol</span></td>
+        <td>${refBtns('country', cnt, cnt.name, 'ref-countries')}</td>
       </tr>
     `;
   });

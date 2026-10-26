@@ -3,6 +3,7 @@ import io
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
+import re
 from typing import Dict, Any, List
 from backend.database import get_db
 from backend.models import (
@@ -63,7 +64,9 @@ def get_all_references(db: Session = Depends(get_db)):
                 "id": c.id, 
                 "name": c.name, 
                 "code_no": c.code_no, 
-                "short_code": (c.short_code or "").upper(), 
+                "short_code": (c.short_code or "").upper(),
+                "name_tr": c.name_tr or "",
+                "name_en": c.name_en or "",
                 "is_favorite": bool(c.is_favorite), 
                 "rgb": c.rgb, 
                 "status": c.status
@@ -312,6 +315,129 @@ def delete_size_item(sz_id: int, db: Session = Depends(get_db)):
         db.commit()
     return {"status": "deleted"}
 
+# ================= TAHRIRLASH / O'CHIRISH (Manbalar) =================
+def _clean(v) -> str:
+    return (v or "").strip()
+
+
+@router.put("/group/{g_id}")
+def update_group(g_id: int, data: Dict[str, Any], db: Session = Depends(get_db)):
+    g = db.query(Group).filter(Group.id == g_id).first()
+    if not g:
+        raise HTTPException(status_code=404, detail="Guruh topilmadi")
+    name, code = _clean(data.get("name")), _clean(data.get("code")).upper()
+    if name:
+        dup = db.query(Group).filter(Group.name.ilike(name), Group.id != g_id).first()
+        if dup:
+            raise HTTPException(status_code=400, detail=f"'{name}' nomli guruh allaqachon bor")
+        g.name = name
+    if code:
+        if not re.fullmatch(r"[A-Z0-9]{2,5}", code):
+            raise HTTPException(status_code=400, detail="Guruh kodi 2-5 ta lotin harf/raqam bo'lsin (masalan TOP)")
+        dup = db.query(Group).filter(Group.code == code, Group.id != g_id).first()
+        if dup:
+            raise HTTPException(status_code=400, detail=f"'{code}' kodi '{dup.name}' guruhida ishlatilgan")
+        g.code = code
+    db.commit()
+    return {"status": "updated", "group": {"id": g.id, "name": g.name, "code": g.code}}
+
+
+@router.delete("/group/{g_id}")
+def delete_group(g_id: int, db: Session = Depends(get_db)):
+    g = db.query(Group).filter(Group.id == g_id).first()
+    if not g:
+        return {"status": "deleted"}
+    used = db.query(ProductType).filter(ProductType.group_id == g_id).count()
+    if used:
+        raise HTTPException(status_code=400, detail=f"Bu guruhga {used} ta mahsulot turi bog'langan. Avval ularni boshqa guruhga o'tkazing")
+    db.delete(g); db.commit()
+    return {"status": "deleted"}
+
+
+@router.put("/season/{s_id}")
+def update_season(s_id: int, data: Dict[str, Any], db: Session = Depends(get_db)):
+    s = db.query(Season).filter(Season.id == s_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="Kolleksiya topilmadi")
+    col, code = _clean(data.get("collection")), _clean(data.get("code")).upper()
+    if col:
+        dup = db.query(Season).filter(Season.collection.ilike(col), Season.id != s_id).first()
+        if dup:
+            raise HTTPException(status_code=400, detail=f"'{col}' kolleksiyasi allaqachon bor")
+        s.collection = col
+    if code:
+        s.code = code
+    db.commit()
+    return {"status": "updated", "season": {"id": s.id, "collection": s.collection, "code": s.code}}
+
+
+@router.delete("/season/{s_id}")
+def delete_season(s_id: int, db: Session = Depends(get_db)):
+    s = db.query(Season).filter(Season.id == s_id).first()
+    if s:
+        db.delete(s); db.commit()
+    return {"status": "deleted"}
+
+
+def _rename_simple(db: Session, model, obj_id: int, data: Dict[str, Any], label: str):
+    obj = db.query(model).filter(model.id == obj_id).first()
+    if not obj:
+        raise HTTPException(status_code=404, detail=f"{label} topilmadi")
+    name = _clean(data.get("name"))
+    if not name:
+        raise HTTPException(status_code=400, detail=f"{label} nomi bo'sh bo'lmasin")
+    dup = db.query(model).filter(model.name.ilike(name), model.id != obj_id).first()
+    if dup:
+        raise HTTPException(status_code=400, detail=f"'{name}' allaqachon mavjud")
+    obj.name = name
+    db.commit()
+    return {"status": "updated", "id": obj.id, "name": obj.name}
+
+
+@router.put("/season-type/{st_id}")
+def update_season_type(st_id: int, data: Dict[str, Any], db: Session = Depends(get_db)):
+    return _rename_simple(db, SeasonType, st_id, data, "Sezon")
+
+
+@router.put("/size-item/{sz_id}")
+def update_size_item(sz_id: int, data: Dict[str, Any], db: Session = Depends(get_db)):
+    return _rename_simple(db, SizeItem, sz_id, data, "Razmer")
+
+
+@router.put("/brand/{b_id}")
+def update_brand(b_id: int, data: Dict[str, Any], db: Session = Depends(get_db)):
+    return _rename_simple(db, Brand, b_id, data, "Brend")
+
+
+@router.delete("/brand/{b_id}")
+def delete_brand(b_id: int, db: Session = Depends(get_db)):
+    b = db.query(Brand).filter(Brand.id == b_id).first()
+    if b:
+        db.delete(b); db.commit()
+    return {"status": "deleted"}
+
+
+@router.put("/country/{c_id}")
+def update_country(c_id: int, data: Dict[str, Any], db: Session = Depends(get_db)):
+    return _rename_simple(db, Country, c_id, data, "Mamlakat")
+
+
+@router.delete("/country/{c_id}")
+def delete_country(c_id: int, db: Session = Depends(get_db)):
+    c = db.query(Country).filter(Country.id == c_id).first()
+    if c:
+        db.delete(c); db.commit()
+    return {"status": "deleted"}
+
+
+@router.delete("/color/{color_id}")
+def delete_color(color_id: int, db: Session = Depends(get_db)):
+    c = db.query(Color).filter(Color.id == color_id).first()
+    if c:
+        db.delete(c); db.commit()
+    return {"status": "deleted"}
+
+
 # ================= OTHER REFERENCES =================
 @router.post("/brand")
 def add_brand(data: Dict[str, str], db: Session = Depends(get_db)):
@@ -384,6 +510,8 @@ def add_color(data: Dict[str, Any], db: Session = Depends(get_db)):
     new_color = Color(
         name=name,
         short_code=short_code,
+        name_tr=(data.get("name_tr") or "").strip() or None,
+        name_en=(data.get("name_en") or "").strip() or None,
         code_no=code_no,
         rgb=rgb,
         is_favorite=is_favorite,
@@ -424,6 +552,10 @@ def update_color(color_id: int, data: Dict[str, Any], db: Session = Depends(get_
             )
         color.short_code = short_code
 
+    if "name_tr" in data:
+        color.name_tr = (data.get("name_tr") or "").strip() or None
+    if "name_en" in data:
+        color.name_en = (data.get("name_en") or "").strip() or None
     if "is_favorite" in data:
         color.is_favorite = bool(data["is_favorite"])
     if "code_no" in data and data["code_no"] is not None:

@@ -929,10 +929,26 @@
             <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1rem;">
               Har safar yangi qabul (приемка) rasmiylashtirilganda admin va menejerlarga avtomatik xabar boradi.
             </p>
-            <div>
-              <span class="badge badge-synced">✅ Bot Faol</span>
-              <span style="font-size: 0.8rem; color: var(--text-muted); margin-left: 0.5rem;">@DeLuxuryBot</span>
+            <div id="tg-status-line" style="margin-bottom: 0.9rem;">
+              <span class="badge" id="tg-status-badge" style="background: var(--bg-hover); color: var(--text-muted);">⏳ Tekshirilmoqda...</span>
+              <span style="font-size: 0.8rem; color: var(--text-muted); margin-left: 0.5rem;" id="tg-status-username"></span>
             </div>
+            <label class="form-label" style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+              <input type="checkbox" id="set-tg-enabled"> Bildirishnomalar yoqilgan
+            </label>
+            <label class="form-label" for="set-tg-token" style="margin-top: 0.6rem;">Bot token (@BotFather)</label>
+            <input class="form-control" id="set-tg-token" placeholder="123456789:ABC-DEF..." autocomplete="off" style="margin-bottom: 0.5rem;">
+            <small id="tg-token-hint" style="display:block; color: var(--text-muted); font-size: 0.75rem; margin-bottom: 0.6rem;"></small>
+            <label class="form-label" for="set-tg-admins">Admin chat ID'lari (vergul bilan)</label>
+            <input class="form-control" id="set-tg-admins" placeholder="137334013, 5551112" style="margin-bottom: 0.5rem;">
+            <label class="form-label" for="set-tg-managers">Menejer chat ID'lari (vergul bilan)</label>
+            <input class="form-control" id="set-tg-managers" placeholder="ixtiyoriy" style="margin-bottom: 0.75rem;">
+            <div style="display:flex; gap: 0.5rem; flex-wrap: wrap;">
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-tg-test">📨 Sinov xabari</button>
+              <button type="button" class="btn btn-primary btn-sm" id="btn-tg-save">💾 Saqlash</button>
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-tg-clear" title="Tokenni o'chirish (bot uziladi)" style="color:#f87171;">✖ Botni uzish</button>
+            </div>
+            <small style="display:block; color: var(--text-muted); font-size: 0.75rem; margin-top: 0.6rem;">Yangi bot ulash: @BotFather → /newbot → tokenni shu yerga yozing. Chat ID: botga /start bosing, @userinfobot orqali ID ni oling.</small>
           </div>
 
         </div>
@@ -1212,12 +1228,13 @@
   <script src="js/auth.js?v=1.0"></script>
   <script src="js/dashboard.js?v=2.0"></script>
   <script src="js/supplies.js?v=3.0"></script>
-  <script src="js/references.js?v=2.9"></script>
+  <script src="js/references.js?v=3.0"></script>
   <script src="js/grid.js?v=3.2"></script>
   <script src="js/grid-extras.js?v=1.1"></script>
   <script src="js/ai-scanner.js?v=4.0"></script>
   <script src="js/history.js"></script>
-  <script src="js/app.js?v=3.5"></script>
+  <script src="js/cp-search.js?v=1.0"></script>
+  <script src="js/app.js?v=3.6"></script>
 
 </body>
 </html>

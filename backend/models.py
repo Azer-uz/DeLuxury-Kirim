@@ -64,6 +64,8 @@ class Color(Base):
     name = Column(String(100), unique=True, nullable=False, index=True)  # e.g. "Черный"
     code_no = Column(Integer, nullable=True)  # e.g. 51
     short_code = Column(String(10), nullable=True, unique=True, index=True)  # e.g. "BLK", "STD"
+    name_tr = Column(String(100), nullable=True)   # Turkcha nomi (nakladnoylar ko'pincha turkcha)
+    name_en = Column(String(100), nullable=True)   # Inglizcha nomi
     is_favorite = Column(Boolean, default=False)  # Top 10 favorite fast select
     rgb = Column(String(30), nullable=True)
     moysklad_id = Column(String(100), nullable=True)

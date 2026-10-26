@@ -1545,7 +1545,8 @@ const Grid = {
     const input = document.querySelector(`.color-tag-input[data-row="${rowIdx}"]`);
     if (input && input.value.trim()) {
       const text = input.value.trim();
-      const match = (References.data.colors || []).find(c => c.name.toLowerCase() === text.toLowerCase());
+      const _t = text.toLowerCase().trim();
+      const match = (References.data.colors || []).find(c => [c.name, c.name_tr, c.name_en].filter(Boolean).some(n => n.toLowerCase().trim() === _t));
       const cName = match ? match.name : text;
       if (!row.colors) row.colors = [];
       if (!row.colors.includes(cName)) row.colors.push(cName);

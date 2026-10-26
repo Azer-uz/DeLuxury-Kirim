@@ -411,12 +411,10 @@ async def submit_to_moysklad(data: Dict[str, Any], request: Request, db: Session
     total_sum_sale = round(sum(it["sum_sale"] for it in items), 2)
     total_qty = sum(it["quantity"] for it in items)
 
-    # 2. Hujjat raqami — eng oxirgi lahzada, MoySklad'dagi bo'sh raqam (auto rejim)
+    # 2. Hujjat raqami — auto rejimda MoySklad o'zi beradi (name yuborilmaydi), javobdan o'qiladi.
+    #    Qo'lda rejimda foydalanuvchi yozgan raqam ishlatiladi.
     if not manual_number:
-        try:
-            doc_number = await ms_service.allocate_supply_number()
-        except MoySkladError as e:
-            raise HTTPException(status_code=502, detail=f"Hujjat raqamini olib bo'lmadi: {e}")
+        doc_number = ""
 
     # 3. Hujjat yozuvi (tarix uchun)
     new_doc = PrixodDocument(
@@ -460,12 +458,15 @@ async def submit_to_moysklad(data: Dict[str, Any], request: Request, db: Session
         new_doc.status = "error"
         new_doc.error_message = error_msg
         db.commit()
-        await tg_service.notify_prixod_error(doc_number, error_msg, user=user.get("name"))
+        await tg_service.notify_prixod_error(doc_number or "avto", error_msg, user=user.get("name"))
         raise HTTPException(status_code=502, detail=f"MoySklad'ga yuborishda xatolik: {error_msg}")
 
     new_doc.status = "sent"
     new_doc.moysklad_document_id = ms_result.get("document_id")
     new_doc.moysklad_document_name = ms_result.get("document_name")
+    if not doc_number and ms_result.get("document_name"):
+        doc_number = str(ms_result.get("document_name"))
+        new_doc.doc_number = doc_number
     db.commit()
 
     # Qoralamani o'chiramiz (ajratilgan model raqamlari tarix uchun qoladi)

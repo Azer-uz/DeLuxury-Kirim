@@ -10,6 +10,7 @@ from backend.database import engine, Base, SessionLocal
 from backend.seed import seed_database
 from backend.migrations import add_missing_columns, fill_missing_color_codes
 from backend.services.auth_service import SESSION_COOKIE, read_session_token
+from backend.routers import telegram as telegram_router
 from backend.routers import (
     references, articul, ai, documents, moysklad, gateway, dashboard, auth, attributes
 )
@@ -96,6 +97,7 @@ app.include_router(ai.router)
 app.include_router(documents.router)
 app.include_router(moysklad.router)
 app.include_router(dashboard.router)
+app.include_router(telegram_router.router)
 
 # Mount Frontend static files
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"

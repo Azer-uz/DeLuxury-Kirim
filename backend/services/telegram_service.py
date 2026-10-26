@@ -7,30 +7,59 @@ from backend.config import get_settings
 logger = logging.getLogger(__name__)
 
 class TelegramService:
+    """Token va qabul qiluvchilar har yuborishda Sozlamalar (baza) dan, bo'lmasa .env dan olinadi —
+    shuning uchun botni interfeysdan almashtirish uchun ilovani qayta ishga tushirish shart emas."""
+
     def __init__(self):
         self.settings = get_settings()
-        self.token = self.settings.telegram_bot_token
-        self.base_url = f"https://api.telegram.org/bot{self.token}"
+
+    def _runtime(self) -> dict:
+        try:
+            from backend.database import SessionLocal
+            from backend.services.app_settings import telegram_runtime
+            db = SessionLocal()
+            try:
+                return telegram_runtime(db)
+            finally:
+                db.close()
+        except Exception as e:
+            logger.warning(f"Telegram sozlamalarini o'qib bo'lmadi, .env ishlatiladi: {e}")
+            ids = [x.strip() for x in f"{self.settings.super_admin_ids},{self.settings.manager_ids}".split(",") if x.strip()]
+            return {"enabled": True, "token": self.settings.telegram_bot_token, "recipients": ids}
+
+    @property
+    def token(self) -> str:
+        return self._runtime().get("token") or ""
 
     def get_recipient_ids(self) -> List[str]:
-        recipients = []
-        if self.settings.super_admin_ids:
-            for item in self.settings.super_admin_ids.split(","):
-                if item.strip():
-                    recipients.append(item.strip())
-        if self.settings.manager_ids:
-            for item in self.settings.manager_ids.split(","):
-                if item.strip() and item.strip() not in recipients:
-                    recipients.append(item.strip())
-        return recipients
+        return list(self._runtime().get("recipients") or [])
 
-    async def send_message(self, text: str, parse_mode: str = "HTML") -> bool:
+    async def get_me(self, token: Optional[str] = None) -> Optional[dict]:
+        """Bot haqida ma'lumot (username) — sozlamalar sahifasidagi holat uchun"""
+        tok = (token or self.token or "").strip()
+        if not tok:
+            return None
+        try:
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                r = await client.get(f"https://api.telegram.org/bot{tok}/getMe")
+                if r.status_code == 200 and r.json().get("ok"):
+                    return r.json().get("result")
+        except Exception as e:
+            logger.warning(f"Telegram getMe xato: {e}")
+        return None
+
+    async def send_message(self, text: str, parse_mode: str = "HTML", token: Optional[str] = None, recipients: Optional[List[str]] = None) -> bool:
         """Send message to all configured admin/manager chat IDs."""
-        if not self.token:
+        rt = self._runtime()
+        if recipients is None and not rt.get("enabled", True):
+            logger.info("Telegram bildirishnomalar o'chirilgan (sozlamalar).")
+            return False
+        tok = (token or rt.get("token") or "").strip()
+        if not tok:
             logger.info("Telegram Bot token not configured, skipping notification.")
             return False
 
-        recipients = self.get_recipient_ids()
+        recipients = recipients if recipients is not None else (rt.get("recipients") or [])
         if not recipients:
             logger.info("No Telegram recipient IDs configured.")
             return False
@@ -40,7 +69,7 @@ class TelegramService:
             for chat_id in recipients:
                 try:
                     resp = await client.post(
-                        f"{self.base_url}/sendMessage",
+                        f"https://api.telegram.org/bot{tok}/sendMessage",
                         json={
                             "chat_id": chat_id,
                             "text": text,
