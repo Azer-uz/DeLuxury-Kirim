@@ -30,7 +30,7 @@
       if (this.lastAdded !== undefined && this.lastAdded !== null) {
         const idx = this.lastAdded; this.lastAdded = null;
         const fld = this.lastAddedField || 'quantity'; this.lastAddedField = null;
-        setTimeout(() => { const q = document.querySelector(`input[data-field="${fld}"][data-row="${idx}"]`); if (q) { q.focus(); q.select(); } }, 60);
+        setTimeout(() => { const q = document.querySelector(fld === 'color' ? `.color-tag-input[data-row="${idx}"]` : `input[data-field="${fld}"][data-row="${idx}"]`); if (q) { q.focus(); if (q.select) q.select(); } }, 60);
       }
     },
     esc(s) { return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'); },
