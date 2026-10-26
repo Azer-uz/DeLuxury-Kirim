@@ -272,7 +272,8 @@
     if (coll && References.getSeasonCode && !References.getSeasonCode(coll)) out.push({ field: 'collection', msg: `Kolleksiya "${coll}" uchun mavsum kodi yo'q` });
     (Grid.requiredFields || []).forEach(f => {
       if (['category', 'product_type', 'model_code', 'collection', 'color', 'season'].includes(f)) return;
-      if (!String(r[f] || '').trim()) out.push({ field: f, msg: `'${f === 'series' ? 'Серия' : f}' MoySklad'da majburiy — to'ldiring` });
+      const FL = { series: 'Серия', size: 'Размер', brand: 'Бренд', country: 'Страна', factory_code: 'Код модели', description: 'Описание' };
+      if (!String(r[f] || '').trim()) out.push({ field: f, msg: `'${FL[f] || f}' MoySklad'da majburiy — to'ldiring` });
     });
     const ser = String(r.series || '').trim();
     if (ser && (Grid.dictValues?.series || []).length && !Grid.dictValues.series.map(String).includes(ser)) out.push({ field: 'series', msg: `Серия "${ser}" MoySklad lug'atida yo'q (yuborishda yangi qiymat yaratiladi)` });
