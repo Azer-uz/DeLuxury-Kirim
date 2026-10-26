@@ -78,7 +78,7 @@ async def search_products(q: str = "", limit: int = 40, db: Session = Depends(ge
     toks = [t for t in _re.split(r"[\s\-_/,.;:]+", q) if t]
     compact = _re.sub(r"[\s\-_]+", "", q)
     lim = min(max(limit, 1), 100)
-    queries = [{"search": q, "limit": lim}]
+    queries = [{"search": q, "limit": lim}, {"filter": f"name~{q}", "limit": lim}]  # MoySklad 'search' noaniq — nom bo'yicha aniq qidiruv ham
     if len(toks) > 1:
         queries.append({"filter": ";".join(f"name~{t}" for t in toks), "limit": lim})
         queries.append({"search": " ".join(toks), "limit": lim})
