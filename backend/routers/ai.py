@@ -224,6 +224,29 @@ async def scan_invoice(
 
     _SPLIT = re.compile(r"[\s/,.\-()]+")
 
+    _LAT2CYR = [("shch", "щ"), ("sch", "щ"), ("yo", "ё"), ("zh", "ж"), ("kh", "х"), ("ts", "ц"), ("ch", "ч"), ("sh", "ш"), ("yu", "ю"), ("ya", "я"), ("ye", "е"),
+                ("a", "а"), ("b", "б"), ("c", "к"), ("d", "д"), ("e", "е"), ("f", "ф"), ("g", "г"), ("h", "х"), ("i", "и"), ("j", "ж"), ("k", "к"), ("l", "л"),
+                ("m", "м"), ("n", "н"), ("o", "о"), ("p", "п"), ("q", "к"), ("r", "р"), ("s", "с"), ("t", "т"), ("u", "у"), ("v", "в"), ("w", "в"), ("x", "кс"),
+                ("y", "й"), ("z", "з")]
+
+    def _cyr(s: str) -> str:
+        """Lotin yozuvni kirillga keltirib taqqoslash: 'klassic' -> 'классик', 'shim' -> 'шим'. Kirill bo'lsa o'zgarmaydi."""
+        s = (s or "").lower().replace("ё", "е")
+        out, i = [], 0
+        while i < len(s):
+            for lat, cyr in _LAT2CYR:
+                if s.startswith(lat, i):
+                    out.append(cyr); i += len(lat); break
+            else:
+                out.append(s[i]); i += 1
+        return "".join(ch for ch in "".join(out) if ch.isalnum())
+
+    def _same_word(a: str, b: str) -> bool:
+        a, b = _cyr(a), _cyr(b)
+        if not a or not b:
+            return False
+        return a == b or (len(a) >= 4 and len(b) >= 4 and (a.startswith(b[:4]) or b.startswith(a[:4])))
+
     def leftover_words(raw_cell: str, chosen_type: str) -> str:
         """'ветровка замиш йока кожа' - 'Кожаная куртка' -> 'замиш йока': tur nomiga kirgan so'zlar olib tashlanadi"""
         if not raw_cell or not chosen_type:
@@ -238,7 +261,9 @@ async def scan_invoice(
             lw = w.lower().strip(".-()")
             if not lw:
                 continue
-            if any(lw == t or (len(lw) >= 4 and len(t) >= 4 and (t.startswith(lw[:4]) or lw.startswith(t[:4]))) for t in type_words):
+            # "KLASSIC-shim" -> "klassic", "shim" bo'laklari ham tekshiriladi (lotin/kirill farqi hisobga olinadi)
+            parts = [x for x in re.split(r"[\-_.]+", lw) if x] or [lw]
+            if all(any(_same_word(pz, t) for t in type_words) for pz in parts):
                 continue
             out.append(w)
         return " ".join(out).strip()
@@ -319,7 +344,9 @@ async def scan_invoice(
         brand = r.get("brand") or ""
         lifestyle = r.get("lifestyle", "")
         desc = (r.get("description") or "").strip() or lifestyle
-        # Tur nomiga kirmagan so'zlar ("замиш йока") -> Описание
+        # Tur nomiga kirmagan so'zlar ("замиш йока") -> Описание; AI yozgan izohdan ham tur so'zlari olib tashlanadi (2 marta yozilmasin)
+        if desc and p_type:
+            desc = leftover_words(desc, p_type)
         rest = leftover_words(raw_cell, p_type)
         if rest and rest.lower() not in (desc or "").lower():
             desc = (rest + (" " + desc if desc else "")).strip()
