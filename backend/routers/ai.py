@@ -263,11 +263,19 @@ async def scan_invoice(
         found = bool(REPEAT_RE.search(s))
         return REPEAT_RE.sub("", s).strip(" ,.;:-"), found
 
-    def _clean_color(c) -> str:
+    COLOR_CODE_RE = re.compile(r"[\s\-]*(\d+\s*#|#\s*\d+)\s*$")
+
+    def _split_color(c) -> tuple:
+        """'INDIGO 59#' -> ('INDIGO', '59#'): rang va uning yonidagi kod (Описание oxiriga qo'shiladi — tovarni tez topish uchun)"""
         c = str(c or "").strip()
-        c = re.sub(r"[\s\-]*\d+\s*#\s*$", "", c)   # "INDIGO 59#" -> "INDIGO"
-        c = re.sub(r"\s*#\s*\d+\s*$", "", c)
-        return c.strip(" ,;-")
+        m = COLOR_CODE_RE.search(c)
+        code = re.sub(r"\s+", "", m.group(1)) if m else ""
+        if m:
+            c = c[:m.start()]
+        return c.strip(" ,;-"), code
+
+    def _clean_color(c) -> str:
+        return _split_color(c)[0]
 
     enriched_rows = []
     prev_src = None          # oldingi TO'LDIRILGAN qatorning manba qiymatlari (davom qatorlari uchun)
@@ -316,7 +324,17 @@ async def scan_invoice(
         if rest and rest.lower() not in (desc or "").lower():
             desc = (rest + (" " + desc if desc else "")).strip()
         colors_list = [_clean_color(c) for c in (r.get("colors") or []) if _clean_color(c)]
-        color = _clean_color(r.get("color", "")) or (colors_list[0] if colors_list else "")
+        color, color_code_note = _split_color(r.get("color", ""))
+        if not color and colors_list:
+            color = colors_list[0]
+        if not color_code_note:
+            for c in (r.get("colors") or []):
+                _, cc = _split_color(c)
+                if cc:
+                    color_code_note = cc
+                    break
+        if color_code_note and color_code_note.lower() not in (desc or "").lower():
+            desc = (desc + " " + color_code_note).strip()   # "59#" -> Описание oxiriga
         if color and color not in colors_list:
             colors_list = [color] + [c for c in colors_list if c != color]
         series = str(r.get("series") or "").strip()

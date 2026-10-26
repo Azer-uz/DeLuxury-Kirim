@@ -107,7 +107,7 @@ DIQQAT:
    - "Сезон": mavsum (agar yozilgan bo'lsa o'sha, bo'sh bo'lsa "Весна-Осень")
    - "Серия": seriyadagi dona soni (masalan: 5, 6, 8, 10) -> "series" (matn sifatida, bo'sh bo'lsa "")
    - "Размерный ряд": razmer (masalan: 48-56, L-4XL, M-3XL, 48-58, S-XL)
-   - "Цвет": rang — nakladnoyda qanday yozilgan bo'lsa shunday (masalan: K.BORDO, K.KAHVA, INDIGO, KLACI, K.GRI, Siyah, Beyaz). Rang yonidagi "59#", "36#" kabi raqam/belgilarni rangga qo'shmang -> "color". Bitta katakda bir nechta rang bo'lsa "colors" ro'yxatiga hammasini yozing.
+   - "Цвет": rang — nakladnoyda qanday yozilgan bo'lsa shunday (masalan: K.BORDO, K.KAHVA, INDIGO, KLACI, K.GRI, Siyah, Beyaz). Rang yonidagi "59#", "36#" kabi raqam/belgilar rang kodi — ularni "color" ga qo'shmang, "color" faqat rang nomi; kodni rangdan keyin bo'sh joy bilan "color" katagida qoldiring ("INDIGO 59#" deb yozsangiz ham bo'ladi — ilova o'zi ajratadi). Bitta katakda bir nechta rang bo'lsa "colors" ro'yxatiga hammasini yozing.
    - "Повтор" / "povtor" / "повторный" yozuvi (odatda "Вид товар" katagida yoki tovar nomi ostida) — bu TOVAR BAZADA ALLAQACHON BOR degan BELGI. Uni product_type, description yoki articul ga YOZMANG; shu tovar qatoriga (va uning davom qatorlariga) "repeat": true qo'ying.
    - DAVOM QATORLARI (JUDA MUHIM): agar qatorda "Вид товар", "Артикул", "Бренд" kataklari BO'SH bo'lsa (yoki "Повтор", "povtor", "-//-", "〃", "тоже" yozilgan bo'lsa), lekin rang / soni / narx bor — bu YUQORIDAGI tovarning BOSHQA RANGI.
      Bunday qatorda product_type, raw_product_type, description, articul, brand, series, size, season ni yuqoridagi to'ldirilgan qatordan AYNAN ko'chiring va "same_model_as_prev": true qo'ying.
