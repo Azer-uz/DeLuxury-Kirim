@@ -13,6 +13,47 @@
     ai_conf_min: 0.85,
   };
 
+  // ===== Jadvalni surish: tepada qo'shimcha gorizontal skroll (jadval uzun bo'lsa ham qo'l ostida) + g'ildirak tugmasi bilan surish =====
+  Grid.setupPanning = function () {
+    const box = document.querySelector('#receipt-table')?.closest('.table-responsive');
+    if (!box || box.dataset.panReady) return;
+    box.dataset.panReady = '1';
+    // 1) Yuqori gorizontal skroll (jadval bilan sinxron)
+    const proxy = document.createElement('div'); proxy.className = 'grid-hscroll'; proxy.title = "Jadvalni o'ngga/chapga surish";
+    const inner = document.createElement('div'); proxy.appendChild(inner);
+    box.parentNode.insertBefore(proxy, box);
+    const syncWidth = () => { const t = document.getElementById('receipt-table'); inner.style.width = (t ? t.scrollWidth : box.scrollWidth) + 'px'; proxy.style.display = box.scrollWidth > box.clientWidth + 2 ? '' : 'none'; };
+    let lock = false;
+    proxy.addEventListener('scroll', () => { if (lock) return; lock = true; box.scrollLeft = proxy.scrollLeft; lock = false; });
+    box.addEventListener('scroll', () => { if (lock) return; lock = true; proxy.scrollLeft = box.scrollLeft; lock = false; });
+    window.addEventListener('resize', syncWidth);
+    const origRender = Grid.render.bind(Grid);
+    Grid.render = function () { const r = origRender(); setTimeout(syncWidth, 0); return r; };
+    setTimeout(syncWidth, 300);
+    // 2) Sichqoncha g'ildiragini (o'rta tugma) bosib turib — to'rt tomonga surish
+    let pan = null;
+    box.addEventListener('mousedown', (e) => {
+      if (e.button !== 1) return;
+      e.preventDefault();
+      pan = { x: e.clientX, y: e.clientY, l: box.scrollLeft, t: box.scrollTop };
+      box.classList.add('grid-panning');
+    });
+    document.addEventListener('mousemove', (e) => {
+      if (!pan) return;
+      box.scrollLeft = pan.l - (e.clientX - pan.x);
+      box.scrollTop = pan.t - (e.clientY - pan.y);
+    });
+    const stop = () => { if (pan) { pan = null; box.classList.remove('grid-panning'); } };
+    document.addEventListener('mouseup', stop); window.addEventListener('blur', stop);
+    box.addEventListener('auxclick', (e) => { if (e.button === 1) e.preventDefault(); });
+    // 3) Shift bosilmasa ham: jadval vertikal sig'sa, g'ildirak gorizontal suradi
+    box.addEventListener('wheel', (e) => {
+      if (e.shiftKey || e.ctrlKey) return;
+      if (box.scrollHeight <= box.clientHeight + 2 && box.scrollWidth > box.clientWidth + 2 && Math.abs(e.deltaY) > Math.abs(e.deltaX)) { box.scrollLeft += e.deltaY; e.preventDefault(); }
+    }, { passive: false });
+  };
+  document.addEventListener('DOMContentLoaded', () => { setTimeout(() => Grid.setupPanning(), 500); });
+
   // MoySklad'da majburiy bo'lgan maydonlar va lug'at qiymatlari (Серия, Размерный ряд)
   Grid.requiredFields = Grid.requiredFields || [];
   Grid.dictValues = Grid.dictValues || {};

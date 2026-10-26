@@ -3250,3 +3250,16 @@ body.theme-light .cell-suspect { background-color: rgba(234, 179, 8, 0.28) !impo
 /* Manbalar: jami soni (ro'yxat boshida) va amallar yonma-yon */
 .ref-total { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem; }
 .history-table td .row-actions { display: inline-flex; flex-wrap: nowrap; white-space: nowrap; }
+
+/* ===== Kirim jadvali: ko'rinadigan gorizontal skroll + sichqoncha g'ildiragi bilan surish ===== */
+.table-responsive { scrollbar-width: auto; scrollbar-color: rgba(148, 163, 184, 0.55) rgba(148, 163, 184, 0.12); }
+.table-responsive::-webkit-scrollbar { height: 14px; width: 12px; }
+.table-responsive::-webkit-scrollbar-track { background: rgba(148, 163, 184, 0.12); border-radius: 8px; }
+.table-responsive::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.55); border-radius: 8px; border: 3px solid transparent; background-clip: padding-box; }
+.table-responsive::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.85); background-clip: padding-box; }
+.grid-hscroll { overflow-x: auto; overflow-y: hidden; height: 14px; margin: 0 0 2px 0; border-radius: 8px; }
+.grid-hscroll > div { height: 1px; }
+.grid-hscroll::-webkit-scrollbar { height: 14px; }
+.grid-hscroll::-webkit-scrollbar-track { background: rgba(148, 163, 184, 0.12); border-radius: 8px; }
+.grid-hscroll::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.55); border-radius: 8px; border: 3px solid transparent; background-clip: padding-box; }
+.table-responsive.grid-panning, .table-responsive.grid-panning * { cursor: grabbing !important; user-select: none !important; }
