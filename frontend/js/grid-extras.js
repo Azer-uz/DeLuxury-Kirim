@@ -24,7 +24,14 @@
       document.getElementById('ps-tbody').innerHTML = '<tr><td colspan="10" style="color: var(--text-muted);">Qidiruv uchun yozing...</td></tr>';
       document.getElementById('ps-status').textContent = '';
     },
-    close() { document.getElementById('modal-product-search')?.classList.remove('active'); },
+    isOpen() { return !!document.getElementById('modal-product-search')?.classList.contains('active'); },
+    close() {
+      document.getElementById('modal-product-search')?.classList.remove('active');
+      if (this.lastAdded !== undefined && this.lastAdded !== null) {
+        const idx = this.lastAdded; this.lastAdded = null;
+        setTimeout(() => { const q = document.querySelector(`input[data-field="quantity"][data-row="${idx}"]`); if (q) { q.focus(); q.select(); } }, 60);
+      }
+    },
     esc(s) { return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'); },
     async search(q) {
       const my = ++this.seq; const st = document.getElementById('ps-status'); const tb = document.getElementById('ps-tbody');
@@ -64,14 +71,18 @@
       const last = Grid.rows[Grid.rows.length - 1];
       if (last && !Grid.isUsefulRow(last) && !last.ms_product_id) Grid.rows[Grid.rows.length - 1] = row; else Grid.rows.push(row);
       Grid.recalculateAll(); Grid.render(); Grid.triggerAutoSave();
-      if (typeof showToast === 'function') showToast(`📦 Bazadan qo\'shildi: ${p.name} (${p.article || p.code})`, 'success');
-      const idx = Grid.rows.length - 1;
-      setTimeout(() => { const q = document.querySelector(`input[data-field="quantity"][data-row="${idx}"]`); if (q) { q.focus(); q.select(); } }, 60);
+      if (typeof showToast === 'function') showToast(`📦 Bazadan qo'shildi: ${p.name} (${p.article || p.code})`, 'success');
+      this.lastAdded = Grid.rows.length - 1;
+      // oyna ochiq qoladi — ketma-ket bir nechta tovar qo'shish uchun; yopilganda oxirgi qo'shilgan qatorning "Soni" katagiga o'tadi
+      const st = document.getElementById('ps-status'); if (st) st.textContent = `✅ Qo'shildi: ${p.article || p.code}. Yana qidiring yoki Esc bilan yoping`;
+      const inp = document.getElementById('ps-query'); if (inp) { inp.value = ''; inp.focus(); }
+      this.items = []; document.getElementById('ps-tbody').innerHTML = '<tr><td colspan="10" style="color: var(--text-muted);">Keyingi tovarni qidiring...</td></tr>';
     },
     setup() {
       document.getElementById('btn-open-product-search')?.addEventListener('click', () => this.open());
       document.getElementById('btn-close-product-search')?.addEventListener('click', () => this.close());
       document.getElementById('modal-product-search')?.addEventListener('click', (e) => { if (e.target.id === 'modal-product-search') this.close(); });
+      document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && this.isOpen()) { e.preventDefault(); e.stopPropagation(); this.close(); } }, true);
       const inp = document.getElementById('ps-query');
       inp?.addEventListener('input', () => { clearTimeout(this.timer); this.timer = setTimeout(() => this.search(inp.value), 350); });
       inp?.addEventListener('keydown', (e) => {

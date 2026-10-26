@@ -51,6 +51,9 @@ async def create_counterparty_endpoint(data: Dict[str, Any]):
     tag = data.get("tag") or data.get("group")
     return await ms_service.create_counterparty(name=name, phone=phone, description=desc, tag=tag)
 
+_SEARCH_ATTR_CACHE: Dict[str, Any] = {}
+
+
 @router.get("/products/search")
 async def search_products(q: str = "", limit: int = 40, db: Session = Depends(get_db)):
     """Bazadan (MoySklad) tovar qidirish: nomi / artikul / kod bo'yicha. Takroriy tovar kirimida mavjud tovarni tanlash uchun."""
@@ -58,11 +61,17 @@ async def search_products(q: str = "", limit: int = 40, db: Session = Depends(ge
     if len(q) < 2:
         return {"items": [], "query": q}
     from backend.services.attributes_service import AttributesService, get_attribute_map
-    try:
-        attributes = await AttributesService(ms_service).list_attributes()
-        mapping = get_attribute_map(db, attributes)
-    except MoySkladError:
-        attributes, mapping = [], {}
+    import time as _t
+    cached = _SEARCH_ATTR_CACHE.get("data")
+    if cached and _t.time() - _SEARCH_ATTR_CACHE.get("ts", 0) < 120:
+        attributes, mapping = cached
+    else:
+        try:
+            attributes = await AttributesService(ms_service).list_attributes()
+            mapping = get_attribute_map(db, attributes)
+            _SEARCH_ATTR_CACHE.update({"data": (attributes, mapping), "ts": _t.time()})
+        except MoySkladError:
+            attributes, mapping = [], {}
     field_of = {v.get("attr_id"): k for k, v in mapping.items() if v.get("attr_id")}
     try:
         data = await ms_service._call("GET", "entity/assortment", params={"search": q, "limit": min(max(limit, 1), 100)})
