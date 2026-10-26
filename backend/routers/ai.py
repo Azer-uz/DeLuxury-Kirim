@@ -241,8 +241,28 @@ async def scan_invoice(
                 out.append(s[i]); i += 1
         return "".join(ch for ch in "".join(out) if ch.isalnum())
 
+    # O'zbekcha / og'zaki yozuv -> ruscha tur so'zi (nakladnoyda "KLASSIC-shim" = "Классические брюки")
+    _TYPE_SYN = {
+        "шим": "брюки", "иштан": "брюки", "иштон": "брюки", "брук": "брюки", "брюк": "брюки", "брюка": "брюки",
+        "куртка": "куртка", "куртк": "куртка", "витровка": "ветровка", "витровк": "ветровка",
+        "футболка": "футболка", "майка": "футболка", "безрукавка": "безрукавка",
+        "койлак": "рубашка", "куйлак": "рубашка", "рубашк": "рубашка",
+        "свитр": "свитер", "свитер": "свитер", "кофта": "кофта", "худи": "худи", "толстовк": "толстовка",
+        "костюм": "костюм", "пальто": "пальто", "шорти": "шорты", "шорт": "шорты", "жинси": "джинсы", "жинс": "джинсы", "джинс": "джинсы",
+        "двойка": "двойка", "тройка": "тройка", "кепка": "кепка", "шапка": "шапка", "пиджак": "пиджак", "жилет": "жилет",
+        "кожа": "кожаная", "кожан": "кожаная", "кожинка": "кожаная", "замш": "замшевая", "замиш": "замшевая",
+        "классик": "классические", "классич": "классические", "класик": "классические", "спорт": "спортивные",
+    }
+
+    def _canon(w: str) -> str:
+        c = _cyr(w)
+        for k in sorted(_TYPE_SYN, key=len, reverse=True):
+            if c == k or (len(k) >= 4 and c.startswith(k)):
+                return _cyr(_TYPE_SYN[k])
+        return c
+
     def _same_word(a: str, b: str) -> bool:
-        a, b = _cyr(a), _cyr(b)
+        a, b = _canon(a), _canon(b)
         if not a or not b:
             return False
         return a == b or (len(a) >= 4 and len(b) >= 4 and (a.startswith(b[:4]) or b.startswith(a[:4])))
@@ -253,7 +273,8 @@ async def scan_invoice(
             return ""
         type_words = {w.lower() for w in _SPLIT.split(chosen_type) if w}
         for k, v in PRODUCT_TYPE_ALIASES.items():
-            if v.lower() == chosen_type.lower() or chosen_type.lower() in v.lower():
+            vl, cl = v.lower(), chosen_type.lower()
+            if vl == cl or cl in vl or vl in cl:
                 type_words.update(w for w in _SPLIT.split(k.lower()) if w)
         type_words.update({"кожа", "koja", "кожаная", "кожанная", "кожан"})  # material tur nomiga kiradi
         out = []
