@@ -88,7 +88,8 @@ DIQQAT:
      * Dvoyka sport -> "Спортивка двойка"
      * Svitr -> "Свитер"
      * Futbolka -> "Футболка"
-     * Vitrovka / Vitrovka koja -> "Ветровка"
+     * Vitrovka -> "Ветровка"
+     * Vitrovka koja / Koja kurtka / Ветровка кожа -> "Куртка кожаная" (yoki ro'yxatdagi shunga o'xshash nom)
      * Bezrukavka -> "Жилет безрукавка"
      * Kurtka -> "Куртка"
      * Kojinka -> "Куртка кожаная"
@@ -96,6 +97,10 @@ DIQQAT:
      * Kardigan -> "Кардиган"
      * Rubashka -> "Рубашка"
      (Lotincha yozilmasin, toza ruscha spravochnik nomi bo'lsin!)
+     MUHIM: "Вид товар" katagida tur nomidan tashqari qo'shimcha so'zlar ham bo'ladi (material, fason, izoh: "замиш", "йока", "кожа", "утеплённый", "с капюшоном", "на молнии"...).
+     * "product_type" ga FAQAT spravochnikdagi tur nomini yozing — ro'yxatdan eng mosini tanlang. Masalan "ветровка замиш йока кожа" -> "Куртка кожаная" (ro'yxatda qanday yozilgan bo'lsa shunday).
+     * Qolgan so'zlarni asl yozilishida "description" ga yozing: "замиш йока". Agar qo'shimcha so'z bo'lmasa "description": "".
+     * Katakdagi asl matnni to'liq "raw_product_type" ga yozing: "ветровка замиш йока кожа".
    - "Артикул": nakladnoydagi zavod artikul kodi (masalan: 88-020, 598581L, 59205, 2708, 6127, 62960-6, 99902, 99901, 99908...). Bu qiymat "articul" maydoniga o'zgarishsiz yoziladi.
    - "Бренд": brend nomi (masalan: Gratude, Brunello C, Loro P, Ganiani, Adidas, Artepro, Mandelli, Minlior, Grand Defile, Liwali, Razza, Renzo Rinal...)
    - "Образ Жизni": obraz jizni / lifestyle (masalan: Sport, Casual, Klassika, agar bo'sh bo'lsa "")
@@ -114,6 +119,8 @@ Javobni quyidagi aniq JSON formatida qaytaring:
     {
       "row_no": 1,
       "product_type": "Американка",
+      "raw_product_type": "Американка",
+      "description": "",
       "articul": "88-020",
       "brand": "Gratude",
       "lifestyle": "",
@@ -136,8 +143,8 @@ QOIDALAR:
         known_types = (reference_context or {}).get("known_product_types") or []
         if known_types:
             prompt += (
-                "\n4. \"product_type\" qiymati IMKON QADAR quyidagi ierarxiya ro'yxatidagi nomlardan biri bo'lsin "
-                "(eng yaqin mosini tanlang):\n" + ", ".join(known_types) + "\n"
+                "\n4. \"product_type\" qiymati FAQAT quyidagi ierarxiya ro'yxatidagi nomlardan biri bo'lsin "
+                "(eng yaqin mosini tanlang, ro'yxatdagi yozilishini o'zgartirmang; tur nomiga kirmagan so'zlar \"description\" ga):\n" + ", ".join(known_types) + "\n"
             )
 
         payload = {

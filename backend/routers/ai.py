@@ -1,4 +1,5 @@
 import os
+import re
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import Dict, Any, List
@@ -107,9 +108,9 @@ async def scan_invoice(
         "futbolka": "Футболка",
         "футболка": "Футболка",
         "vitrovka": "Ветровка",
-        "vitrovka koja": "Ветровка",
+        "vitrovka koja": "Куртка кожаная",
         "ветровка": "Ветровка",
-        "ветровка кожа": "Ветровка",
+        "ветровка кожа": "Куртка кожаная",
         "bezrukavka": "Жилет безрукавка",
         "безрукавка": "Жилет безрукавка",
         "kurtka": "Куртка",
@@ -152,8 +153,8 @@ async def scan_invoice(
     }
 
     PRODUCT_TYPE_ALTERNATIVES = {
-        "vitrovka koja": "Куртка кожаная",
-        "ветровка кожа": "Куртка кожаная",
+        "vitrovka koja": "Ветровка",
+        "ветровка кожа": "Ветровка",
         "kojinka": "Ветровка",
         "кожинка": "Ветровка",
         "koja kurtka": "Ветровка",
@@ -177,20 +178,38 @@ async def scan_invoice(
         alt = PRODUCT_TYPE_ALTERNATIVES.get(low, "")
         is_ambiguous = bool(alt)
 
-        # 1. Exact alias check
-        if low in PRODUCT_TYPE_ALIASES:
-            return PRODUCT_TYPE_ALIASES[low], is_ambiguous, alt
-
-        # 2. Check if name exists in DB directly
+        # 1. Ierarxiyadagi nom (mijozning o'z ro'yxati) — birinchi navbatda
         exact = db.query(ProductType).filter(ProductType.name.ilike(clean)).first()
         if exact:
-            return exact.name, is_ambiguous, alt
+            return exact.name, False, ""
 
-        # 3. Partial alias match
+        # 2. Alias (lotincha/og'zaki yozuv) — natija ierarxiyada bo'lsa o'sha nom bilan
+        if low in PRODUCT_TYPE_ALIASES:
+            target = PRODUCT_TYPE_ALIASES[low]
+            in_db = db.query(ProductType).filter(ProductType.name.ilike(target)).first()
+            if not in_db:
+                # so'zlari bir xil, tartibi boshqa nom ("Куртка кожаная" ~ "Кожаная куртка")
+                words = [w for w in target.lower().split() if len(w) > 2]
+                for pt in db.query(ProductType).all():
+                    if all(any(pw.startswith(w[:5]) for pw in pt.name.lower().split()) for w in words):
+                        in_db = pt; break
+            return (in_db.name if in_db else target), is_ambiguous, alt
+
+        # 3. So'zlar bo'yicha alias: katakdagi so'zlar ichida alias so'zlari bo'lsa (eng ko'p so'z mos kelgani g'olib):
+        #    "ветровка замиш йока кожа" -> "ветровка кожа" (2 so'z) > "ветровка" (1 so'z)
+        cell_words = [w for w in re.split(r"[\s/,.\-()]+", low) if w]
+        def _hit(a: str, b: str) -> bool:
+            return a == b or (len(a) >= 4 and len(b) >= 4 and (a.startswith(b[:4]) or b.startswith(a[:4])))
+        best, best_n = None, 0
         for k, v in PRODUCT_TYPE_ALIASES.items():
-            if k in low or low in k:
-                alt_cand = PRODUCT_TYPE_ALTERNATIVES.get(k, "")
-                return v, bool(alt_cand), alt_cand
+            kw = k.split()
+            if all(any(_hit(x, w) for w in cell_words) for x in kw) and len(kw) > best_n:
+                best, best_n = k, len(kw)
+        if best:
+            target = PRODUCT_TYPE_ALIASES[best]
+            in_db = db.query(ProductType).filter(ProductType.name.ilike(target)).first()
+            alt_cand = PRODUCT_TYPE_ALTERNATIVES.get(best, "")
+            return (in_db.name if in_db else target), bool(alt_cand), alt_cand
 
         # 4. Substring in DB
         partial = db.query(ProductType).filter(ProductType.name.ilike(f"%{clean}%")).first()
@@ -199,14 +218,46 @@ async def scan_invoice(
 
         return clean, False, ""
 
+    _SPLIT = re.compile(r"[\s/,.\-()]+")
+
+    def leftover_words(raw_cell: str, chosen_type: str) -> str:
+        """'ветровка замиш йока кожа' - 'Кожаная куртка' -> 'замиш йока': tur nomiga kirgan so'zlar olib tashlanadi"""
+        if not raw_cell or not chosen_type:
+            return ""
+        type_words = {w.lower() for w in _SPLIT.split(chosen_type) if w}
+        for k, v in PRODUCT_TYPE_ALIASES.items():
+            if v.lower() == chosen_type.lower() or chosen_type.lower() in v.lower():
+                type_words.update(w for w in _SPLIT.split(k.lower()) if w)
+        type_words.update({"кожа", "koja", "кожаная", "кожанная", "кожан"})  # material tur nomiga kiradi
+        out = []
+        for w in re.split(r"[\s/,]+", raw_cell.strip()):
+            lw = w.lower().strip(".-()")
+            if not lw:
+                continue
+            if any(lw == t or (len(lw) >= 4 and len(t) >= 4 and (t.startswith(lw[:4]) or lw.startswith(t[:4]))) for t in type_words):
+                continue
+            out.append(w)
+        return " ".join(out).strip()
+
     enriched_rows = []
     for idx, r in enumerate(extracted_rows):
-        raw_p_type = r.get("product_type", "")
+        raw_p_type = (r.get("product_type") or "").strip()
+        raw_cell = (r.get("raw_product_type") or raw_p_type).strip()
         p_type, is_ambig, alt_type = normalize_product_type(raw_p_type)
+        in_hierarchy = bool(p_type) and db.query(ProductType).filter(ProductType.name.ilike(p_type)).first() is not None
+        if not in_hierarchy and raw_cell and raw_cell.lower() != raw_p_type.lower():
+            # AI tanlagan nom ierarxiyada yo'q — katakning asl matnidan urinamiz
+            p_type2, a2, alt2 = normalize_product_type(raw_cell)
+            if p_type2 and db.query(ProductType).filter(ProductType.name.ilike(p_type2)).first():
+                p_type, is_ambig, alt_type = p_type2, a2, alt2
         coll = r.get("collection") or default_collection
         brand = r.get("brand") or ""
         lifestyle = r.get("lifestyle", "")
-        desc = r.get("description", "") or lifestyle
+        desc = (r.get("description") or "").strip() or lifestyle
+        # Tur nomiga kirmagan so'zlar ("замиш йока") -> Описание
+        rest = leftover_words(raw_cell, p_type)
+        if rest and rest.lower() not in (desc or "").lower():
+            desc = (rest + (" " + desc if desc else "")).strip()
         color = r.get("color", "")
         articul_in_sheet = r.get("articul", "")
         factory_code = articul_in_sheet
