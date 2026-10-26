@@ -65,6 +65,7 @@ def get_all_references(db: Session = Depends(get_db)):
                 "name": c.name, 
                 "code_no": c.code_no, 
                 "short_code": (c.short_code or "").upper(),
+                "name_ru": c.name_ru or "",
                 "name_tr": c.name_tr or "",
                 "name_en": c.name_en or "",
                 "is_favorite": bool(c.is_favorite), 
@@ -510,6 +511,7 @@ def add_color(data: Dict[str, Any], db: Session = Depends(get_db)):
     new_color = Color(
         name=name,
         short_code=short_code,
+        name_ru=(data.get("name_ru") or "").strip() or None,
         name_tr=(data.get("name_tr") or "").strip() or None,
         name_en=(data.get("name_en") or "").strip() or None,
         code_no=code_no,
@@ -552,6 +554,8 @@ def update_color(color_id: int, data: Dict[str, Any], db: Session = Depends(get_
             )
         color.short_code = short_code
 
+    if "name_ru" in data:
+        color.name_ru = (data.get("name_ru") or "").strip() or None
     if "name_tr" in data:
         color.name_tr = (data.get("name_tr") or "").strip() or None
     if "name_en" in data:
@@ -587,24 +591,84 @@ def toggle_color_favorite(color_id: int, db: Session = Depends(get_db)):
 
 @router.post("/sync-moysklad")
 async def sync_moysklad_catalog(db: Session = Depends(get_db)):
-    """Sync and update local status against MoySklad folders and products."""
-    folders = await moysklad_service.get_product_folders()
-    folder_names = {f.get("name", "").lower(): f.get("id") for f in folders if f.get("name")}
+    """Lokal ma'lumotnomalarni MoySklad bilan solishtirish: har bir qiymat MoySklad'ning tegishli lug'atida
+    (Вид товара, Категория, Бренд, Сезон, Коллекция, Цвет, Размерный ряд) bormi — 'synced' / 'local_only'."""
+    from backend.services.attributes_service import AttributesService, get_attribute_map
+    svc = AttributesService(moysklad_service)
+    attributes = await svc.list_attributes()
+    mapping = get_attribute_map(db, attributes)
+    by_id = {a["id"]: a for a in attributes}
+    by_name = {(a.get("name") or "").strip().lower(): a for a in attributes}
 
-    categories = db.query(Category).all()
-    synced_count = 0
-    for cat in categories:
-        if cat.name.lower() in folder_names:
-            cat.status = "synced"
-            cat.moysklad_id = folder_names[cat.name.lower()]
-            synced_count += 1
-        else:
-            cat.status = "local_only"
+    def dict_id_for(field_key: str, *fallback_names: str):
+        entry = mapping.get(field_key) or {}
+        a = by_id.get(entry.get("attr_id")) if entry.get("attr_id") else None
+        if not a:
+            for n in fallback_names:
+                a = by_name.get(n.lower())
+                if a:
+                    break
+        return (a or {}).get("dictionary_id")
 
+    async def dict_values(dict_id: str) -> dict:
+        """{lower_name: id} — lug'atning barcha qiymatlari"""
+        out = {}
+        if not dict_id:
+            return out
+        offset = 0
+        while True:
+            data = await moysklad_service._call("GET", f"entity/customentity/{dict_id}", params={"limit": 1000, "offset": offset})
+            rows = data.get("rows", [])
+            for r in rows:
+                nm = (r.get("name") or "").strip()
+                if nm:
+                    out[nm.lower()] = r.get("id")
+            if len(rows) < 1000:
+                break
+            offset += 1000
+        return out
+
+    def apply(objs, names_of, values: dict, counter: dict, label: str):
+        synced = 0
+        for o in objs:
+            hit = None
+            for nm in names_of(o):
+                if nm and nm.strip().lower() in values:
+                    hit = values[nm.strip().lower()]
+                    break
+            if hit:
+                o.status = "synced"; o.moysklad_id = hit; synced += 1
+            else:
+                o.status = "local_only"
+        counter[label] = {"synced": synced, "total": len(objs), "moysklad_values": len(values)}
+
+    result = {}
+    # Вид товара
+    vid = await dict_values(dict_id_for("product_type", "Вид товара"))
+    apply(db.query(ProductType).all(), lambda o: [o.name], vid, result, "product_types")
+    # Категория: lug'at yoki tovar papkalari
+    cat_vals = await dict_values(dict_id_for("category", "Категория"))
+    if not cat_vals:
+        folders = await moysklad_service.get_product_folders()
+        cat_vals = {(f.get("name") or "").lower(): f.get("id") for f in folders if f.get("name")}
+    apply(db.query(Category).all(), lambda o: [o.name], cat_vals, result, "categories")
+    brand_vals = await dict_values(dict_id_for("brand", "Бренд"))
+    apply(db.query(Brand).all(), lambda o: [o.name], brand_vals, result, "brands")
+    season_vals = await dict_values(dict_id_for("season", "Сезон"))
+    apply(db.query(SeasonType).all(), lambda o: [o.name], season_vals, result, "season_types")
+    coll_vals = await dict_values(dict_id_for("collection", "Коллекция"))
+    apply(db.query(Season).all(), lambda o: [o.collection], coll_vals, result, "seasons")
+    color_vals = await dict_values(dict_id_for("color", "Цвет"))
+    apply(db.query(Color).all(), lambda o: [o.name, o.name_ru, o.name_tr, o.name_en], color_vals, result, "colors")
+    size_vals = await dict_values(dict_id_for("size", "Размерный ряд", "Размер"))
+    apply(db.query(SizeItem).all(), lambda o: [o.name], size_vals, result, "sizes")
     db.commit()
+    total_synced = sum(v["synced"] for v in result.values())
     return {
         "status": "success",
-        "synced_categories_count": synced_count,
-        "total_categories": len(categories),
-        "moysklad_folders_count": len(folders)
+        "synced_categories_count": result.get("categories", {}).get("synced", 0),
+        "total_categories": result.get("categories", {}).get("total", 0),
+        "summary": result,
+        "message": "MoySklad bilan solishtirildi: " + ", ".join(f"{k} {v['synced']}/{v['total']}" for k, v in result.items()),
+        "total_synced": total_synced,
     }

@@ -56,7 +56,7 @@
     const fc = (r.factory_code || '').trim();
     if (fc && hasCyr(fc) && hasLat(fc)) out.push({ field: 'factory_code', msg: 'Kod modelida kirill va lotin aralash (O/0, С/C?)' });
     if (References.settings?.color_enabled) {
-      const colors = (References.data?.colors || []).flatMap(c => (typeof c === 'object' ? [c.name, c.name_tr, c.name_en].filter(Boolean) : [c])).map(n => String(n).toLowerCase());
+      const colors = (References.data?.colors || []).flatMap(c => (typeof c === 'object' ? [c.name, c.name_ru, c.name_tr, c.name_en].filter(Boolean) : [c])).map(n => String(n).toLowerCase());
       const rc = (r.colors && r.colors.length ? r.colors : (r.color ? [r.color] : []));
       rc.forEach(c => { if (colors.length && !colors.includes(String(c).toLowerCase())) out.push({ field: 'color', msg: `Rang "${c}" spravochnikda yo'q` }); });
     }

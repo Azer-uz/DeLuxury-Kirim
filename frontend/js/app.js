@@ -346,7 +346,10 @@ function setupMainButtons() {
       if (resp.ok) {
         await References.init();
         renderReferencesUI('ref-product-types');
-        showToast(`✅ MoySklad katalogi bilan sinxronlandi (${data.synced_categories_count} ta kategoriya)`, 'success');
+        const sm = data.summary || {};
+        const lbl = { product_types: 'tur', categories: 'kategoriya', brands: 'brend', season_types: 'sezon', seasons: 'kolleksiya', colors: 'rang', sizes: 'razmer' };
+        const parts = Object.keys(sm).map(k => `${lbl[k] || k}: ${sm[k].synced}/${sm[k].total}`).join(', ');
+        showToast(`✅ MoySklad bilan solishtirildi — ${parts || (data.synced_categories_count + ' ta kategoriya')}`, 'success');
       }
     } catch (e) {
       showToast("❌ Sinxronlashda xatolik", "error");
