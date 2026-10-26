@@ -23,32 +23,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   applySettingsUI();
   AIScanner.init();
 
-  // 2. Initialize Dashboard & Supplies
-  try {
-    if (typeof Dashboard !== 'undefined') {
-      await Dashboard.init();
-    }
-  } catch (e) {
-    console.error("Dashboard init error:", e);
-  }
-
-  try {
-    if (typeof SuppliesList !== 'undefined') {
-      await SuppliesList.init();
-    }
-  } catch (e) {
-    console.error("SuppliesList init error:", e);
-  }
-
-  // 3. Load MoySklad metadata concurrently
-  loadMoySkladMetadata();
-
-  // 4. Initialize Grid
+  // 2. Jadval (avtosaqlash, klaviatura) — dashboard/ro'yxat yuklanishini KUTMASDAN, darhol
+  //    (MoySklad sekin javob bersa ham qoralama avtosaqlash ishlab turishi kerak)
   try {
     await Grid.init();
   } catch (e) {
     console.error("Grid init error:", e);
   }
+
+  // 3. Load MoySklad metadata concurrently
+  loadMoySkladMetadata();
+
+  // 4. Dashboard & Supplies — fon rejimida (sekin bo'lsa boshqa ishlarni to'xtatmaydi)
+  if (typeof Dashboard !== 'undefined') Dashboard.init().catch(e => console.error("Dashboard init error:", e));
+  if (typeof SuppliesList !== 'undefined') SuppliesList.init().catch(e => console.error("SuppliesList init error:", e));
 });
 
 // Toast notification helper
