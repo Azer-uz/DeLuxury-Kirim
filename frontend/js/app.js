@@ -893,6 +893,15 @@ function applySettingsUI() {
   setVal('set-size-in-name', s.size_in_name);
   setVal('set-usd-enabled', s.usd_enabled);
   setVal('set-color-lang', s.color_primary_lang || 'ru');
+  // Standart kolleksiya / sezon — Manbalar ro'yxatidan tanlanadi
+  const fillSel = (id, items, cur, emptyLabel) => {
+    const el = document.getElementById(id); if (!el) return;
+    const opts = [`<option value="">${emptyLabel}</option>`].concat(items.map(v => `<option value="${String(v).replace(/"/g, '&quot;')}" ${v === cur ? 'selected' : ''}>${v}</option>`));
+    if (cur && !items.includes(cur)) opts.push(`<option value="${String(cur).replace(/"/g, '&quot;')}" selected>${cur} (ro'yxatda yo'q)</option>`);
+    el.innerHTML = opts.join(''); el.disabled = !isAdmin;
+  };
+  fillSel('set-default-collection', (References.data?.seasons || []).map(x => x.collection).filter(Boolean), s.default_collection || '', '— eng oxirgi kolleksiya —');
+  fillSel('set-default-season', (References.data?.season_types || []).map(x => x.name).filter(Boolean), s.default_season || '', "— bo'sh —");
   setVal('set-company-name', s.company_name);
   setVal('set-allowed-logins', s.allowed_logins);
   setVal('set-tg-enabled', s.telegram_enabled);
@@ -1146,6 +1155,8 @@ function setupAppSettingsForm() {
       size_in_name: document.getElementById('set-size-in-name')?.checked,
       usd_enabled: document.getElementById('set-usd-enabled')?.checked,
       color_primary_lang: document.getElementById('set-color-lang')?.value || 'ru',
+      default_collection: document.getElementById('set-default-collection')?.value || '',
+      default_season: document.getElementById('set-default-season')?.value || '',
       company_name: document.getElementById('set-company-name')?.value || '',
       allowed_logins: document.getElementById('set-allowed-logins')?.value || ''
     };

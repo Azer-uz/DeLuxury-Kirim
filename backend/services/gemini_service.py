@@ -140,6 +140,9 @@ QOIDALAR:
 2. "Вид товар" maydoniga lotincha emas, faqat ruscha spravochnik nomini yozing.
 3. Faqat toza JSON formatida javob bering, hech qanday ortiqcha matn qo'shmang.
 """
+        ds = (reference_context or {}).get("default_season")
+        if ds and ds != "Весна-Осень":
+            prompt = prompt.replace("Весна-Осень", ds)  # standart sezon — Sozlamalardan
         known_types = (reference_context or {}).get("known_product_types") or []
         if known_types:
             prompt += (

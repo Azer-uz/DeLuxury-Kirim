@@ -21,6 +21,8 @@ DEFAULTS: Dict[str, Any] = {
     "usd_enabled": False,        # Kirimni dollarda qilish imkoniyati (odatda faqat so'm)
     "allowed_logins": "",        # Bo'sh — MoySklad hisobining barcha xodimlari kira oladi
     "color_primary_lang": "ru",   # Ranglarning asosiy nomi: ru (ruscha) | tr (turkcha) — mijozga qarab
+    "default_collection": "",     # Yangi qator / AI uchun standart kolleksiya (masalan AW26); bo'sh — eng oxirgi kolleksiya
+    "default_season": "",         # Yangi qator / AI uchun standart sezon (masalan Весна-Осень)
     # Telegram bildirishnomalar — Sozlamalar sahifasidan boshqariladi; bo'sh bo'lsa .env qiymati ishlatiladi
     "telegram_enabled": True,
     "telegram_bot_token": None,   # None -> .env TELEGRAM_BOT_TOKEN

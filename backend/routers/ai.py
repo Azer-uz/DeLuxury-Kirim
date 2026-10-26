@@ -7,6 +7,7 @@ from backend.database import get_db
 from backend.models import ProductType, Brand, Season
 from backend.services.gemini_service import GeminiService
 from backend.services.articul_service import RefLookup, calculate_row_formulas
+from backend.services.app_settings import get_app_settings
 
 router = APIRouter(prefix="/api/ai", tags=["AI Invoice OCR"])
 gemini_service = GeminiService()
@@ -31,10 +32,13 @@ async def scan_invoice(
     known_brands = [b.name for b in db.query(Brand).limit(50).all()]
     known_seasons = [s.collection for s in db.query(Season).all()]
 
+    app_settings = get_app_settings(db)
+    default_season = (app_settings.get("default_season") or "").strip() or "Весна-Осень"
     ref_context = {
         "known_product_types": known_pts,
         "known_brands": known_brands,
-        "known_seasons": known_seasons
+        "known_seasons": known_seasons,
+        "default_season": default_season,
     }
 
     mime_type = file.content_type or "image/jpeg"
@@ -75,7 +79,7 @@ async def scan_invoice(
     refs = RefLookup(db)
     # Nakladnoyda kolleksiya bo'lmaydi — eng oxirgi qo'shilgan kolleksiya taklif qilinadi (jadvalda o'zgartirsa bo'ladi)
     latest_season = db.query(Season).order_by(Season.id.desc()).first()
-    default_collection = latest_season.collection if latest_season else ""
+    default_collection = (app_settings.get("default_collection") or "").strip() or (latest_season.collection if latest_season else "")
 
     def safe_num(val, default=0.0):
         if val is None:
@@ -290,7 +294,7 @@ async def scan_invoice(
             "group_name": calc["group_name"],
             "brand": brand,
             "collection": coll,
-            "season": r.get("season", "Весна-Осень"),
+            "season": (r.get("season") or "").strip() or default_season,
             "size": size,
             "description": desc,
             "color": color,
