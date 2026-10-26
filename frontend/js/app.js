@@ -70,6 +70,7 @@ function confirmAt(message, opts = {}) {
       top = r.bottom + 8; if (top + ph > vh - 8) top = Math.max(8, r.top - ph - 8);
       left = Math.min(Math.max(8, r.left + r.width / 2 - pw / 2), vw - pw - 8);
       pop.classList.add('anchored');
+      pop.style.setProperty('--arrow-left', Math.round(r.left + r.width / 2 - left) + 'px');  // strelka aynan tugmaga qaraydi
     } else { top = Math.max(8, vh / 2 - ph / 2); left = Math.max(8, vw / 2 - pw / 2); }
     pop.style.top = top + 'px'; pop.style.left = left + 'px';
     const first = pop.querySelector('[data-ci="' + (choices.length - 1) + '"]'); if (first) first.focus();
