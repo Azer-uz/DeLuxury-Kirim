@@ -11,11 +11,12 @@ if not SEED_DIR.exists():
     SEED_DIR = Path(__file__).resolve().parent.parent
 
 def seed_database(db: Session):
+    """Boshlang'ich ma'lumotlar — FAQAT bo'sh jadvallarga. Mijoz o'chirgan/qayta nomlagan qiymatlar restartda qaytib kelmasligi uchun."""
     """Seed initial reference data from CSV files into database."""
     
     # 1. Seed Guruhlar (guruh_kodlari.csv)
     guruh_file = SEED_DIR / "guruh_kodlari.csv"
-    if guruh_file.exists():
+    if guruh_file.exists() and db.query(Group).count() == 0:
         with open(guruh_file, mode="r", encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
             for row in reader:
@@ -29,7 +30,7 @@ def seed_database(db: Session):
 
     # 2. Seed Mavsumlar (mavsum_kodlari.csv)
     mavsum_file = SEED_DIR / "mavsum_kodlari.csv"
-    if mavsum_file.exists():
+    if mavsum_file.exists() and db.query(Season).count() == 0:
         with open(mavsum_file, mode="r", encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
             for row in reader:
@@ -43,7 +44,7 @@ def seed_database(db: Session):
 
     # 3. Seed Vid Tovara, Kategoriya & Guruh mapping (vid_tovara_kategoriya_guruh.csv)
     vid_file = SEED_DIR / "vid_tovara_kategoriya_guruh.csv"
-    if vid_file.exists():
+    if vid_file.exists() and db.query(ProductType).count() == 0:
         # Load all groups in memory for fast lookup
         groups_map = {g.name.strip().lower(): g for g in db.query(Group).all()}
         categories_map = {c.name.strip().lower(): c for c in db.query(Category).all()}
@@ -86,7 +87,7 @@ def seed_database(db: Session):
 
     # 4. Seed Ranglar (ranglar_1.csv)
     rang_file = SEED_DIR / "ranglar_1.csv"
-    if rang_file.exists():
+    if rang_file.exists() and db.query(Color).count() == 0:
         with open(rang_file, mode="r", encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
             for row in reader:
