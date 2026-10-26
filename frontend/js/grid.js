@@ -1,7 +1,7 @@
 // Interactive Excel-like Grid Engine
 const Grid = {
   rows: [],
-  baseCounter: 0,
+  baseCounter: null,   // null — MoySklad hisoblagichi hali kelmagan (model raqami '…' ko'rsatiladi)
   baseCode: 0,
   activeCell: { rowIndex: 0, colKey: 'product_type' },
   activeDraftId: null,
@@ -97,8 +97,12 @@ const Grid = {
     const row = this.rows[rowIdx];
     const map = ordinals || this.computeModelOrdinals();
     const ord = map.has(row.model_key) ? map.get(row.model_key) : null;
-    const calc = References.calculateRow(row, ord, this.baseCounter, this.getRate());
+    const calc = References.calculateRow(row, ord, this.baseCounter || 0, this.getRate());
     calc.code = this.previewCode(row);
+    if (this.baseCounter === null && !row.ms_product_id) {
+      // Hisoblagich hali yuklanmagan — soxta 00001 o'rniga kutish belgisi (haqiqiy raqamni yuborishda server beradi)
+      calc.model_code = '…'; calc.articul = '…'; calc.code = '…';
+    }
     if (row.ms_product_id) {
       // Bazadan tanlangan mavjud tovar: artikul/kod/nom MoySklad'dagidek, model raqami ajratilmaydi
       calc.model_code = row.ms_model_code || '';
