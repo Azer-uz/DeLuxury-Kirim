@@ -73,12 +73,43 @@ async def search_products(q: str = "", limit: int = 40, db: Session = Depends(ge
         except MoySkladError:
             attributes, mapping = [], {}
     field_of = {v.get("attr_id"): k for k, v in mapping.items() if v.get("attr_id")}
-    try:
-        data = await ms_service._call("GET", "entity/assortment", params={"search": q, "limit": min(max(limit, 1), 100)})
-    except MoySkladError as e:
-        return {"items": [], "query": q, "error": str(e)}
+    # So'zlarga bo'lamiz: "bv-745" -> ["bv", "745"] — MoySklad'da "BV 745" deb yozilgan bo'lsa ham topiladi
+    import re as _re, asyncio as _aio
+    toks = [t for t in _re.split(r"[\s\-_/,.;:]+", q) if t]
+    compact = _re.sub(r"[\s\-_]+", "", q)
+    lim = min(max(limit, 1), 100)
+    queries = [{"search": q, "limit": lim}]
+    if len(toks) > 1:
+        queries.append({"filter": ";".join(f"name~{t}" for t in toks), "limit": lim})
+        queries.append({"search": " ".join(toks), "limit": lim})
+    for val in {q, compact, " ".join(toks)}:
+        queries.append({"filter": f"article~{val}", "limit": lim})
+        queries.append({"filter": f"code~{val}", "limit": lim})
+    # Код модели (zavod artikuli) atributi bo'yicha aniq moslik
+    fc_attr = (mapping.get("factory_code") or {}).get("attr_id")
+    if fc_attr:
+        href = f"https://api.moysklad.ru/api/remap/1.2/entity/product/metadata/attributes/{fc_attr}"
+        for val in {q, compact, " ".join(toks), "-".join(toks), q.upper(), " ".join(toks).upper(), "-".join(toks).upper()}:
+            queries.append({"filter": f"{href}={val}", "limit": lim})
+
+    async def _one(params):
+        try:
+            return await ms_service._call("GET", "entity/assortment", params=params)
+        except MoySkladError:
+            return {}
+    results = await _aio.gather(*[_one(p) for p in queries])
+    seen = set(); rows = []
+    for data in results:
+        for p in (data.get("rows", []) if isinstance(data, dict) else []):
+            if p.get("id") in seen:
+                continue
+            seen.add(p.get("id")); rows.append(p)
+
+    def _norm(s: str) -> str:
+        return _re.sub(r"[\s\-_/.,]+", "", (s or "").lower())
+    ntoks = [_norm(t) for t in toks]
     items = []
-    for p in (data.get("rows", []) if isinstance(data, dict) else []):
+    for p in rows:
         if (p.get("meta") or {}).get("type") != "product" or p.get("archived"):
             continue
         fields: Dict[str, str] = {}
@@ -93,6 +124,10 @@ async def search_products(q: str = "", limit: int = 40, db: Session = Depends(ge
             if sp.get("value"):
                 sale = sp["value"] / 100.0
                 break
+        hay = _norm(" ".join([p.get("name") or "", p.get("article") or "", p.get("code") or ""] + list(fields.values())))
+        hay_name = _norm(p.get("name") or "")
+        hits = sum(1 for t in ntoks if t and t in hay)
+        score = hits * 10 + (5 if ntoks and all(t in hay_name for t in ntoks) else 0) + (3 if compact and compact.lower() in hay else 0)
         items.append({
             "id": p.get("id"),
             "name": p.get("name") or "",
@@ -104,8 +139,14 @@ async def search_products(q: str = "", limit: int = 40, db: Session = Depends(ge
             "quantity": p.get("quantity"),
             "fields": fields,
             "path": p.get("pathName") or "",
+            "_hits": hits, "_score": score,
         })
-    return {"items": items, "query": q, "total": len(items)}
+    full = [it for it in items if ntoks and it["_hits"] == len(ntoks)]
+    chosen = full if full else [it for it in items if it["_hits"] > 0] or items
+    chosen.sort(key=lambda it: (-it["_score"], it["name"].lower()))
+    for it in chosen:
+        it.pop("_hits", None); it.pop("_score", None)
+    return {"items": chosen[:lim], "query": q, "total": len(chosen), "exact": bool(full)}
 
 
 @router.get("/next-doc-number")

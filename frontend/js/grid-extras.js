@@ -41,7 +41,7 @@
       try { const r = await fetch(`/api/moysklad/products/search?q=${encodeURIComponent(q.trim())}`); d = await r.json(); } catch (e) { d = { items: [], error: 'Tarmoq xatosi' }; }
       if (my !== this.seq) return;
       this.items = d.items || [];
-      st.textContent = d.error ? ('Xato: ' + d.error) : `${this.items.length} ta topildi`;
+      st.textContent = d.error ? ('Xato: ' + d.error) : (this.items.length && d.exact === false ? `Aniq moslik yo'q — o'xshashlari: ${this.items.length} ta` : `${this.items.length} ta topildi`);
       if (!this.items.length) { tb.innerHTML = '<tr><td colspan="10" style="color: var(--text-muted);">Topilmadi</td></tr>'; return; }
       const fmt = (n) => (n || n === 0) ? Number(n).toLocaleString('ru-RU') : '—';
       tb.innerHTML = this.items.map((p, i) => `
@@ -120,7 +120,12 @@
     const proxy = document.createElement('div'); proxy.className = 'grid-hscroll'; proxy.title = "Jadvalni o'ngga/chapga surish";
     const inner = document.createElement('div'); proxy.appendChild(inner);
     box.parentNode.insertBefore(proxy, box);
-    const syncWidth = () => { const t = document.getElementById('receipt-table'); inner.style.width = (t ? t.scrollWidth : box.scrollWidth) + 'px'; proxy.style.display = box.scrollWidth > box.clientWidth + 2 ? '' : 'none'; };
+    const syncWidth = () => {
+      const t = document.getElementById('receipt-table'); inner.style.width = (t ? t.scrollWidth : box.scrollWidth) + 'px';
+      const scrollable = getComputedStyle(box).overflowX !== 'visible';  // katta ekranda jadval o'zi skroll qilmaydi — sahifa skroll qiladi
+      proxy.style.display = scrollable && box.scrollWidth > box.clientWidth + 2 ? '' : 'none';
+    };
+    document.getElementById('btn-toggle-fullscreen')?.addEventListener('click', () => setTimeout(syncWidth, 100));
     let lock = false;
     proxy.addEventListener('scroll', () => { if (lock) return; lock = true; box.scrollLeft = proxy.scrollLeft; lock = false; });
     box.addEventListener('scroll', () => { if (lock) return; lock = true; proxy.scrollLeft = box.scrollLeft; lock = false; });
@@ -144,11 +149,7 @@
     const stop = () => { if (pan) { pan = null; box.classList.remove('grid-panning'); } };
     document.addEventListener('mouseup', stop); window.addEventListener('blur', stop);
     box.addEventListener('auxclick', (e) => { if (e.button === 1) e.preventDefault(); });
-    // 3) Shift bosilmasa ham: jadval vertikal sig'sa, g'ildirak gorizontal suradi
-    box.addEventListener('wheel', (e) => {
-      if (e.shiftKey || e.ctrlKey) return;
-      if (box.scrollHeight <= box.clientHeight + 2 && box.scrollWidth > box.clientWidth + 2 && Math.abs(e.deltaY) > Math.abs(e.deltaX)) { box.scrollLeft += e.deltaY; e.preventDefault(); }
-    }, { passive: false });
+    // (g'ildirakni gorizontalga aylantirish olib tashlandi — katta ekran rejimida sahifa skrollini to'sib qo'yardi)
   };
   document.addEventListener('DOMContentLoaded', () => { setTimeout(() => Grid.setupPanning(), 500); });
 
