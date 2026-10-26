@@ -668,7 +668,8 @@ const SuppliesList = {
     // Back button inside Grid Receipt view
     const btnBackToSupplies = document.getElementById('btn-back-to-supplies');
     if (btnBackToSupplies) {
-      btnBackToSupplies.addEventListener('click', () => {
+      btnBackToSupplies.addEventListener('click', async () => {
+        if (typeof Grid !== 'undefined') await Grid.flushDraft();
         this.closeGridReceiptView();
       });
     }
@@ -747,19 +748,26 @@ const SuppliesList = {
         console.warn("Could not fetch next doc number:", e);
       }
 
-      // Reset currency to UZS (default)
-      const curSelect = document.getElementById('header-currency');
-      if (curSelect) curSelect.value = 'UZS';
-      if (typeof syncCurrencyUI === 'function') syncCurrencyUI();
-
-      // Reset grid to exactly 1 clean empty row on opening new receipt
-      if (typeof Grid !== 'undefined') {
-        Grid.activeDraftId = null;
-        Grid.isDirty = false;
-        Grid.rows = [Grid.createEmptyRow()];
-        await Grid.fetchBaseCounter();
+      if (typeof Grid !== 'undefined' && Grid.hasUsefulRows()) {
+        // Tugallanmagan kirim bor — davom ettiramiz (yangi boshlash uchun "Tozalash")
         Grid.recalculateAll();
         Grid.render();
+        if (typeof showToast === 'function') showToast('↩️ Tugallanmagan kirim davom etmoqda. Yangi boshlash uchun "Tozalash" tugmasi', 'info');
+      } else {
+        // Reset currency to UZS (default)
+        const curSelect = document.getElementById('header-currency');
+        if (curSelect) curSelect.value = 'UZS';
+        if (typeof syncCurrencyUI === 'function') syncCurrencyUI();
+
+        // Reset grid to exactly 1 clean empty row on opening new receipt
+        if (typeof Grid !== 'undefined') {
+          Grid.activeDraftId = null;
+          Grid.isDirty = false;
+          Grid.rows = [Grid.createEmptyRow()];
+          await Grid.fetchBaseCounter();
+          Grid.recalculateAll();
+          Grid.render();
+        }
       }
     }
   },

@@ -214,6 +214,10 @@ function setupNavigationTabs() {
   tabs.forEach(tab => {
     tab.addEventListener('click', (e) => {
       const targetId = tab.getAttribute('data-tab');
+      // Yangi kirim ustida ishlab turgan bo'lsa — bo'limdan chiqishdan oldin qoralama darhol saqlanadi
+      if (typeof Grid !== 'undefined' && Grid.isDirty) {
+        Grid.flushDraft().then(() => { if (typeof showToast === 'function' && Grid.hasUsefulRows()) showToast('💾 Kirim qoralama sifatida saqlandi — "Yangi Kirim" bilan davom ettirasiz', 'info'); });
+      }
       
       // Update tab buttons
       tabs.forEach(t => t.classList.remove('active'));

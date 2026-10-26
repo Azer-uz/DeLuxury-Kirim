@@ -110,9 +110,8 @@ def save_draft(data: Dict[str, Any], db: Session = Depends(get_db)):
     if draft_id:
         draft = db.query(DraftState).filter(DraftState.id == int(draft_id)).first()
 
-    if not draft and doc_num:
-        draft = db.query(DraftState).filter(DraftState.doc_number == doc_num).first()
-
+    # Eslatma: draft_id bo'lmasa HAR DOIM yangi qoralama — bir login bilan bir vaqtda bir necha kishi ishlaganda
+    # bir xil raqam yozib bir-birining qoralamasini ustidan yozib yubormasligi uchun (raqam bo'yicha qidirilmaydi)
     if not draft:
         draft = DraftState(
             draft_key=f"draft_{doc_num or datetime.datetime.utcnow().timestamp()}",

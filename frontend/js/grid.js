@@ -192,12 +192,17 @@ const Grid = {
     this.render();
   },
 
-  clearGrid() {
-    if (confirm("Haqiqatan ham jadvaldagi barcha qatorlarni tozalamoqchimisiz?")) {
-      this.rows = [];
-      this.addEmptyRows(1);
-      this.triggerAutoSave();
+  async clearGrid() {
+    if (!confirm("Jadval tozalanib, yangi kirim boshlanadi. Joriy qoralama o'chiriladi. Davom etasizmi?")) return;
+    const oldId = this.activeDraftId;
+    this.activeDraftId = null; this.isDirty = false;
+    this.rows = [];
+    this.addEmptyRows(1);
+    if (oldId) {
+      try { await fetch(`/api/documents/draft/${oldId}`, { method: 'DELETE' }); } catch (e) {}
     }
+    const badge = document.getElementById('save-status');
+    if (badge) badge.textContent = "Yangi kirim";
   },
 
   applyAlternativeType(rowIndex, newType) {
@@ -1111,12 +1116,55 @@ const Grid = {
   },
 
   setupAutoSave() {
+    this.setupUnloadGuard();
     // Save draft every 3 seconds if dirty
     setInterval(() => {
       if (this.isDirty) {
         this.saveDraft();
       }
     }, 3000);
+  },
+
+  // Bo'limdan chiqishdan oldin: kutmasdan darhol saqlash
+  async flushDraft() {
+    if (this.isDirty) await this.saveDraft();
+  },
+
+  hasUsefulRows() {
+    return (this.rows || []).some(r => r.product_type || r.factory_code || r.brand || (parseFloat(r.price_buy) || 0) > 0 || (parseFloat(r.price_sale) || 0) > 0);
+  },
+
+  // Sahifa yopilganda/yangilanganda — so'nggi holat sendBeacon bilan (brauzer kutmaydi)
+  setupUnloadGuard() {
+    const beacon = () => {
+      if (!this.isDirty || !this.hasUsefulRows()) return;
+      try {
+        const payload = JSON.stringify({ draft_id: this.activeDraftId, header: this.collectHeaderForDraft(), rows: this.rows });
+        navigator.sendBeacon('/api/documents/draft', new Blob([payload], { type: 'application/json' }));
+      } catch (e) {}
+    };
+    window.addEventListener('pagehide', beacon);
+    window.addEventListener('beforeunload', beacon);
+    // Sarlavha maydonlari ham qoralamaga kiradi
+    ['header-date', 'header-store', 'header-counterparty', 'header-currency', 'header-rate', 'header-doc-number'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) { el.addEventListener('change', () => this.triggerAutoSave()); el.addEventListener('input', () => this.triggerAutoSave()); }
+    });
+  },
+
+  collectHeaderForDraft() {
+    return {
+      date: document.getElementById('header-date')?.value,
+      doc_number: this.manualDocNumber ? this.docNumberValue() : '',
+      manual_number: !!this.manualDocNumber,
+      store_id: document.getElementById('header-store')?.value,
+      store_name: document.getElementById('header-store')?.selectedOptions[0]?.text || '',
+      counterparty_id: document.getElementById('header-counterparty')?.value,
+      counterparty_name: document.getElementById('header-counterparty')?.value ? document.getElementById('header-counterparty').selectedOptions[0].text : '',
+      currency: this.getCurrency(),
+      rate: this.getCurrency() === 'USD' ? this.getRate() : null,
+      draft_id: this.activeDraftId
+    };
   },
 
   triggerAutoSave() {
@@ -1127,18 +1175,7 @@ const Grid = {
 
   async saveDraft() {
     try {
-      const headerData = {
-        date: document.getElementById('header-date')?.value,
-        doc_number: this.manualDocNumber ? this.docNumberValue() : '',
-        manual_number: !!this.manualDocNumber,
-        store_id: document.getElementById('header-store')?.value,
-        store_name: document.getElementById('header-store')?.selectedOptions[0]?.text || '',
-        counterparty_id: document.getElementById('header-counterparty')?.value,
-        counterparty_name: document.getElementById('header-counterparty')?.value ? document.getElementById('header-counterparty').selectedOptions[0].text : '',
-        currency: this.getCurrency(),
-        rate: this.getCurrency() === 'USD' ? this.getRate() : null,
-        draft_id: this.activeDraftId
-      };
+      const headerData = this.collectHeaderForDraft();
 
       const payload = {
         draft_id: this.activeDraftId,
@@ -1222,8 +1259,9 @@ const Grid = {
     });
 
     // 4. Back button
-    document.getElementById('btn-back-to-supplies')?.addEventListener('click', (e) => {
+    document.getElementById('btn-back-to-supplies')?.addEventListener('click', async (e) => {
       e.preventDefault();
+      await this.flushDraft();
       SuppliesList.closeGridReceiptView();
     });
 
