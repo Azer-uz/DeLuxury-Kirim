@@ -846,7 +846,6 @@ function renderColorsSubtab(container) {
           </div>
         </td>
         <td style="font-size:0.8rem; color: var(--text-muted);">${((References.settings?.color_primary_lang || 'ru') === 'tr' ? c.name_ru : c.name_tr) || '—'}${c.name_en ? ` <span style="opacity:.7">/ ${c.name_en}</span>` : ''}</td>
-        <td style="text-align: center;"><div class="row-actions"><button class="btn-icon" title="Tahrirlash (nom, tarjimalar, kod)" onclick='RefEdit.open("color", ${c.id}, JSON.parse(this.dataset.cur), "ref-colors")' data-cur="${JSON.stringify({name: c.name, name_ru: c.name_ru || '', name_tr: c.name_tr || '', name_en: c.name_en || '', short_code: c.short_code || '', code_no: c.code_no || ''}).replace(/"/g, '&quot;')}">✏️</button><button class="btn-icon delete" title="O'chirish" onclick='RefEdit.remove("color", ${c.id}, this.dataset.label, "ref-colors")' data-label="${String(c.name).replace(/"/g, '&quot;')}">🗑️</button></div></td>
         <td>
           <input type="text" 
             class="form-control color-short-code-input" 
@@ -866,6 +865,7 @@ function renderColorsSubtab(container) {
           </button>
         </td>
         <td style="text-align: center;"><span class="badge badge-synced">✅ Faol</span></td>
+        <td style="text-align: center;"><div class="row-actions"><button class="btn-icon" title="Tahrirlash (nom, tarjimalar, kod)" onclick='RefEdit.open("color", ${c.id}, JSON.parse(this.dataset.cur), "ref-colors")' data-cur="${JSON.stringify({name: c.name, name_ru: c.name_ru || '', name_tr: c.name_tr || '', name_en: c.name_en || '', short_code: c.short_code || '', code_no: c.code_no || ''}).replace(/"/g, '&quot;')}">✏️</button><button class="btn-icon delete" title="O'chirish" onclick='RefEdit.remove("color", ${c.id}, this.dataset.label, "ref-colors")' data-label="${String(c.name).replace(/"/g, '&quot;')}">🗑️</button></div></td>
       </tr>
     `;
   });
