@@ -445,9 +445,18 @@
       idx.forEach(i => { const r = this.rows[i]; r.colors = r.colors || []; if (!r.colors.includes(val)) r.colors.push(val); r.color = r.colors[0]; });
     } else {
       const label = document.getElementById('bulk-field')?.selectedOptions[0]?.text || field;
-      if (!val && !(await confirmAt(`${idx.length} ta qatorda "${label}" tozalansinmi?`))) return;
-      this.pushUndo(`${label} = "${val}" (${idx.length} qator)`);
-      idx.forEach(i => { const r = this.rows[i]; r[field] = (field === 'quantity') ? (parseFloat(val) || 0) : val; r.last_edited_field = field; if (field === 'product_type') { r.ai_ambiguous = false; r.ai_alternative = ''; } });
+      const mode = (field === 'quantity') ? 'replace' : (document.getElementById('bulk-mode')?.value || 'replace');
+      if (mode !== 'replace' && !val) return showToast("Qo'shiladigan matnni yozing", 'error');
+      if (mode === 'replace' && !val && !(await confirmAt(`${idx.length} ta qatorda "${label}" tozalansinmi?`))) return;
+      // append/prepend: "yoqali" + "(2)" -> "yoqali (2)"; bo'sh bo'lsa -> "(2)"; allaqachon shu matn bilan tugasa/boshlansa — qayta qo'shilmaydi
+      const combine = (cur) => {
+        cur = String(cur || '').trim();
+        if (mode === 'append') return cur.endsWith(val) ? cur : (cur ? `${cur} ${val}` : val);
+        if (mode === 'prepend') return cur.startsWith(val) ? cur : (cur ? `${val} ${cur}` : val);
+        return val;
+      };
+      this.pushUndo(`${label} ${mode === 'replace' ? '=' : mode === 'append' ? '+= (oxiriga)' : '+= (boshiga)'} "${val}" (${idx.length} qator)`);
+      idx.forEach(i => { const r = this.rows[i]; r[field] = (field === 'quantity') ? (parseFloat(val) || 0) : combine(r[field]); r.last_edited_field = field; if (field === 'product_type') { r.ai_ambiguous = false; r.ai_alternative = ''; } });
     }
     this.recalculateAll(); this.render(); this.triggerAutoSave();
     if (typeof showToast === 'function') showToast(`✅ ${idx.length} ta qator yangilandi`, 'success');
@@ -553,6 +562,9 @@
     document.getElementById('btn-undo')?.addEventListener('click', () => Grid.undo());
     document.getElementById('suspect-badge')?.addEventListener('click', () => Grid.toggleSuspectFilter());
     document.getElementById('bulk-value')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') Grid.bulkFill(); });
+    const modeSel = document.getElementById('bulk-mode');
+    const syncMode = () => { const f = document.getElementById('bulk-field')?.value; if (modeSel) modeSel.style.display = (f === 'quantity' || f === 'color') ? 'none' : ''; };
+    document.getElementById('bulk-field')?.addEventListener('change', syncMode); syncMode();
     document.getElementById('bulk-field')?.addEventListener('change', (e) => {
       const v = document.getElementById('bulk-value'); if (!v) return;
       const dl = { product_type: 'dl-product-types', brand: 'dl-brands', collection: 'dl-seasons', season: 'dl-season-types', size: 'dl-sizes', country: 'dl-countries', color: 'dl-colors' }[e.target.value];

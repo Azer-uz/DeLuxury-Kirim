@@ -638,6 +638,11 @@
             <option value="quantity">Количество</option>
             <option value="color">Цвет (qo'shish)</option>
           </select>
+          <select class="form-control bulk-select" id="bulk-mode" title="Qanday yozilsin: almashtirish, matn oxiriga yoki boshiga qo'shish" style="width: auto;">
+            <option value="replace">= almashtirish</option>
+            <option value="append">+ oxiriga</option>
+            <option value="prepend">+ boshiga</option>
+          </select>
           <input type="text" class="form-control bulk-select" id="bulk-value" list="dl-brands" placeholder="qiymat..." style="width: 150px;" autocomplete="off">
           <button class="btn btn-secondary btn-sm" id="btn-bulk-fill" title="Tanlangan qatorlarga shu qiymatni yozish">✔ To'ldirish</button>
           <span class="bulk-sep"></span>
@@ -1276,7 +1281,7 @@
   <script src="js/supplies.js?v=3.3"></script>
   <script src="js/references.js?v=3.5"></script>
   <script src="js/grid.js?v=4.1"></script>
-  <script src="js/grid-extras.js?v=2.0"></script>
+  <script src="js/grid-extras.js?v=2.1"></script>
   <script src="js/ai-scanner.js?v=4.0"></script>
   <script src="js/history.js"></script>
   <script src="js/cp-search.js?v=1.0"></script>
