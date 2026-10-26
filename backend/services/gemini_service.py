@@ -105,7 +105,13 @@ DIQQAT:
    - "Бренд": brend nomi (masalan: Gratude, Brunello C, Loro P, Ganiani, Adidas, Artepro, Mandelli, Minlior, Grand Defile, Liwali, Razza, Renzo Rinal...)
    - "Образ Жизni": obraz jizni / lifestyle (masalan: Sport, Casual, Klassika, agar bo'sh bo'lsa "")
    - "Сезон": mavsum (agar yozilgan bo'lsa o'sha, bo'sh bo'lsa "Весна-Осень")
+   - "Серия": seriyadagi dona soni (masalan: 5, 6, 8, 10) -> "series" (matn sifatida, bo'sh bo'lsa "")
    - "Размерный ряд": razmer (masalan: 48-56, L-4XL, M-3XL, 48-58, S-XL)
+   - "Цвет": rang — nakladnoyda qanday yozilgan bo'lsa shunday (masalan: K.BORDO, K.KAHVA, INDIGO, KLACI, K.GRI, Siyah, Beyaz). Rang yonidagi "59#", "36#" kabi raqam/belgilarni rangga qo'shmang -> "color". Bitta katakda bir nechta rang bo'lsa "colors" ro'yxatiga hammasini yozing.
+   - "Повтор" / "povtor" / "повторный" yozuvi (odatda "Вид товар" katagida yoki tovar nomi ostida) — bu TOVAR BAZADA ALLAQACHON BOR degan BELGI. Uni product_type, description yoki articul ga YOZMANG; shu tovar qatoriga (va uning davom qatorlariga) "repeat": true qo'ying.
+   - DAVOM QATORLARI (JUDA MUHIM): agar qatorda "Вид товар", "Артикул", "Бренд" kataklari BO'SH bo'lsa (yoki "Повтор", "povtor", "-//-", "〃", "тоже" yozilgan bo'lsa), lekin rang / soni / narx bor — bu YUQORIDAGI tovarning BOSHQA RANGI.
+     Bunday qatorda product_type, raw_product_type, description, articul, brand, series, size, season ni yuqoridagi to'ldirilgan qatordan AYNAN ko'chiring va "same_model_as_prev": true qo'ying.
+     Masalan: 3-qator "KLASSIC-shim GF-817 GRANDE-FALCO 8 30-38 INDIGO 112" va 4-6 qatorlar faqat "KAHVA 72", "KLACI 56", "K.GRI 72" — bu bitta model GF-817 ning 4 ta rangi: 4 ta qator, hammasida bir xil tur/artikul/brend, same_model_as_prev: true (3-qatorda false).
    - "Кол-во": tovar soni. DIQQAT: Agar jadvalda "5x2" bo'lsa 5 * 2 = 10 dona, agar "5x3" bo'lsa 15 dona, "5x11" bo'lsa 55 dona, "6x2" bo'lsa 12 dona, "5x6" bo'lsa 30 dona, "5x10" bo'lsa 50 dona, "5" bo'lsa 5 dona deb umumiy dona sonini "quantity" ga raqam sifatida yozing. Asl yozuvni esa "raw_quantity" ga yozing (masalan "5x2").
    - "Закуп Цена": tan narx / sotib olish narxi (masalan: 180, 400, 200, 130, 420...)
    - "Продажная Цена": sotish narxi (masalan: 225, 555, 245, 195, 495...)
@@ -125,7 +131,12 @@ Javobni quyidagi aniq JSON formatida qaytaring:
       "brand": "Gratude",
       "lifestyle": "",
       "season": "Весна-Осень",
+      "series": "5",
       "size": "48-56",
+      "color": "K.Bordo",
+      "colors": ["K.Bordo"],
+      "same_model_as_prev": false,
+      "repeat": false,
       "quantity": 5,
       "raw_quantity": "5",
       "price_buy": 180.0,
@@ -136,7 +147,7 @@ Javobni quyidagi aniq JSON formatida qaytaring:
 }
 
 QOIDALAR:
-1. Jadvaldagi barcha qatorlarni to'liq o'qing.
+1. Jadvaldagi barcha qatorlarni to'liq o'qing — rang/soni/narxi bor har bir qator alohida JSON qator (davom qatorlari ham!).
 2. "Вид товар" maydoniga lotincha emas, faqat ruscha spravochnik nomini yozing.
 3. Faqat toza JSON formatida javob bering, hech qanday ortiqcha matn qo'shmang.
 """

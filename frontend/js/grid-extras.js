@@ -229,6 +229,7 @@
     const r = this.rows[idx];
     const out = [];
     if (!r || !this.isUsefulRow(r)) return out;
+    if (r.ai_repeat && !r.ms_product_id && !r.custom_model) out.push({ field: 'product_type', msg: "Nakladnoyda 'Повтор' — bazada bor tovar, lekin Код модели bo'yicha topilmadi: 'Bazadan tovar' (Ctrl+F) bilan tanlang" });
     if (r.ms_product_id) {
       const q = parseFloat(r.quantity) || 0, pb = parseFloat(r.price_buy) || 0, ps = parseFloat(r.price_sale) || 0;
       if (q <= 0) out.push({ field: 'quantity', msg: 'Soni 0' });

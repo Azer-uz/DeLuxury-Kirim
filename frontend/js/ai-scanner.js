@@ -61,6 +61,40 @@ const AIScanner = {
   resetToDropzone() { this.resetState(); },
   backToPreview() { this.scannedRows = []; this._zones('preview'); },
 
+  // 'Повтор' belgili qatorlar: bazadan (MoySklad) Код модели bo'yicha qidiriladi.
+  //  - shu rang bazada bor -> mavjud tovar (ms_product_id, faqat soni/narx)
+  //  - model bor, rang yo'q -> mavjud modelga yangi rang (custom_model, model raqami bazadagidek)
+  //  - topilmasa -> qator shubhali belgilanadi (qo'lda "Bazadan tovar")
+  async linkRepeats(rows) {
+    const norm = s => String(s || '').toLowerCase().replace(/[\s\-_.,/]+/g, '');
+    const colorNames = (c) => { const refs = (typeof References !== 'undefined' && References.data?.colors) || []; const n = norm(c); const hit = refs.find(x => typeof x === 'object' && [x.name, x.name_ru, x.name_tr, x.name_en].filter(Boolean).some(v => norm(v) === n)); return hit ? [hit.name, hit.name_ru, hit.name_tr, hit.name_en].filter(Boolean).map(norm) : [n]; };
+    const byCode = {}; let linked = 0, newColor = 0, missing = 0;
+    for (const r of rows) {
+      const fc = (r.factory_code || '').trim(); if (!fc) { missing++; r.ai_repeat_result = 'missing'; continue; }
+      const key = norm(fc);
+      if (!byCode[key]) {
+        try { const res = await fetch(`/api/moysklad/products/search?q=${encodeURIComponent(fc)}`); const d = await res.json(); byCode[key] = (d.items || []).filter(p => norm(p.fields?.factory_code) === key || norm(p.article).startsWith(key)); }
+        catch (e) { byCode[key] = []; }
+      }
+      const cands = byCode[key];
+      if (!cands.length) { missing++; r.ai_repeat_result = 'missing'; continue; }
+      const cn = colorNames(r.color);
+      const same = cands.find(p => cn.includes(norm(p.fields?.color)));
+      if (same) {
+        Object.assign(r, { ms_product_id: same.id, ms_article: same.article || '', ms_code: same.code || '', ms_name: same.name || '', ms_model_code: same.fields?.model_code || '', custom_articul: true, articul: same.article || '', code: same.code || '', full_name: same.name || '',
+          product_type: same.fields?.product_type || r.product_type, brand: same.fields?.brand || r.brand, size: same.fields?.size || r.size, series: same.fields?.series || r.series, collection: same.fields?.collection || r.collection, season: same.fields?.season || r.season, color: same.fields?.color || r.color, colors: [same.fields?.color || r.color] });
+        if (!(parseFloat(r.price_buy) > 0)) r.price_buy = same.price_buy || 0; if (!(parseFloat(r.price_sale) > 0)) r.price_sale = same.price_sale || 0;
+        r.ai_repeat_result = 'existing'; linked++;
+      } else {
+        const p = cands[0]; let model = (p.fields?.model_code || '').toUpperCase(); if (!model) { const m = String(p.article || '').toUpperCase().match(/^([A-Z0-9]{2,4}[A-Z]{2,4}\d{5})/); model = m ? m[1] : ''; }
+        if (model) { Object.assign(r, { custom_model: true, model_code: model, product_type: p.fields?.product_type || r.product_type, brand: p.fields?.brand || r.brand, series: p.fields?.series || r.series, collection: p.fields?.collection || r.collection, season: p.fields?.season || r.season }); r.ai_repeat_result = 'new_color'; newColor++; }
+        else { missing++; r.ai_repeat_result = 'missing'; }
+      }
+    }
+    if (typeof Grid !== 'undefined') { Grid.recalculateAll(); Grid.render(); Grid.triggerAutoSave(); }
+    if (typeof showToast === 'function') showToast(`♻️ Повтор: ${linked} ta mavjud tovar bog'landi, ${newColor} ta mavjud modelga yangi rang${missing ? `, ${missing} ta bazada topilmadi (qo'lda "Bazadan tovar")` : ''}`, missing ? 'warning' : 'success');
+  },
+
   // ── Rasmni tayyorlash ──
   async handleFileSelected(file) {
     if (!file) return;
@@ -275,6 +309,15 @@ const AIScanner = {
     }
     const mult = document.getElementById('ai-chk-multiply-1000')?.checked;
     const allColors = (typeof References !== 'undefined' && References.data?.colors) || [];
+    // Bir model (model_group) — bitta model_key: ranglar bitta model raqamini oladi (Ctrl+Enter bilan ajratilgandek)
+    const groupKeys = {};
+    this.scannedRows.forEach(r => {
+      if (r.model_group !== undefined && r.model_group !== null && typeof Grid !== 'undefined' && Grid.newModelKey) {
+        if (!groupKeys[r.model_group]) groupKeys[r.model_group] = Grid.newModelKey();
+        r.model_key = groupKeys[r.model_group];
+      }
+      delete r.model_group; delete r.same_model_as_prev;
+    });
     this.scannedRows.forEach(r => {
       if (mult) { if (parseFloat(r.price_buy) > 0) r.price_buy = Math.round(parseFloat(r.price_buy) * 1000); if (parseFloat(r.price_sale) > 0) r.price_sale = Math.round(parseFloat(r.price_sale) * 1000); }
       const raw = r.factory_code || r.model_code || ''; r.factory_code = raw; r.model_code = raw;
@@ -287,6 +330,9 @@ const AIScanner = {
       const existing = Grid.rows.filter(r => r.product_type || r.price_buy > 0);
       Grid.rows = [...existing, ...this.scannedRows];
       Grid.recalculateAll(); Grid.render(); Grid.triggerAutoSave();
+      // 'Повтор' qatorlari — bazadan Код модели bo'yicha qidirib bog'lash (fonda)
+      const repeats = this.scannedRows.filter(r => r.ai_repeat);
+      if (repeats.length) this.linkRepeats(repeats);
     }
     this.closeModal();
     if (typeof showToast === 'function') showToast(`✨ ${this.scannedRows.length} ta qator jadvalga joylandi${this.scannedMeta?.kontragent ? ` (Kontragent: ${this.scannedMeta.kontragent})` : ''}${mult ? ' [x1000]' : ''}`, 'success');

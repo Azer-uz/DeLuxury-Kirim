@@ -243,8 +243,61 @@ async def scan_invoice(
             out.append(w)
         return " ".join(out).strip()
 
+    CONT_MARKERS = {"повтор", "povtor", "-//-", "〃", "\"", "тоже", "same", "idem", "=", "--"}
+
+    def _is_continuation(r: dict) -> bool:
+        pt = (r.get("product_type") or "").strip().lower()
+        art = (r.get("articul") or "").strip()
+        br = (r.get("brand") or "").strip()
+        has_payload = bool((r.get("color") or "").strip() or (r.get("colors") or []) or safe_num(r.get("quantity"), 0) > 0 or safe_num(r.get("price_buy"), 0) > 0)
+        if r.get("same_model_as_prev"):
+            return True
+        if pt in CONT_MARKERS:
+            return True
+        return (not pt and not art and not br and has_payload)
+
+    REPEAT_RE = re.compile(r"(?i)\b(повтор(ный|н\.?)?|povtor|repeat)\b[\s.,:;-]*")
+
+    def _strip_repeat(s: str) -> tuple:
+        s = str(s or "")
+        found = bool(REPEAT_RE.search(s))
+        return REPEAT_RE.sub("", s).strip(" ,.;:-"), found
+
+    def _clean_color(c) -> str:
+        c = str(c or "").strip()
+        c = re.sub(r"[\s\-]*\d+\s*#\s*$", "", c)   # "INDIGO 59#" -> "INDIGO"
+        c = re.sub(r"\s*#\s*\d+\s*$", "", c)
+        return c.strip(" ,;-")
+
     enriched_rows = []
+    prev_src = None          # oldingi TO'LDIRILGAN qatorning manba qiymatlari (davom qatorlari uchun)
+    model_group = 0
     for idx, r in enumerate(extracted_rows):
+        r = dict(r)
+        if _is_continuation(r) and prev_src:
+            # Davom qatori: yuqoridagi modelning boshqa rangi — tur/artikul/brend/seriya/razmer meros, model raqami bitta
+            for k in ("product_type", "raw_product_type", "description", "articul", "brand", "series", "size", "season", "lifestyle", "collection"):
+                if not (r.get(k) or "").strip() if isinstance(r.get(k), str) else not r.get(k):
+                    r[k] = prev_src.get(k)
+            if not safe_num(r.get("price_buy"), 0) and prev_src.get("price_buy"):
+                r["price_buy"] = prev_src.get("price_buy")
+            if not safe_num(r.get("price_sale"), 0) and prev_src.get("price_sale"):
+                r["price_sale"] = prev_src.get("price_sale")
+            r["_group"] = prev_src.get("_group")
+        else:
+            model_group += 1
+            r["_group"] = model_group
+            prev_src = r
+        # 'Повтор' — bazada bor tovar belgisi: matnlardan olib tashlanadi, qator belgilanadi
+        is_repeat = bool(r.get("repeat"))
+        for k in ("product_type", "raw_product_type", "description", "articul"):
+            if isinstance(r.get(k), str) and r.get(k):
+                cleaned, f = _strip_repeat(r[k]); r[k] = cleaned; is_repeat = is_repeat or f
+        if r.get("_group") == (prev_src or {}).get("_group") and prev_src is not r and prev_src.get("_repeat"):
+            is_repeat = True
+        r["_repeat"] = is_repeat
+        if prev_src is r:
+            prev_src["_repeat"] = is_repeat
         raw_p_type = (r.get("product_type") or "").strip()
         raw_cell = (r.get("raw_product_type") or raw_p_type).strip()
         p_type, is_ambig, alt_type = normalize_product_type(raw_p_type)
@@ -262,7 +315,11 @@ async def scan_invoice(
         rest = leftover_words(raw_cell, p_type)
         if rest and rest.lower() not in (desc or "").lower():
             desc = (rest + (" " + desc if desc else "")).strip()
-        color = r.get("color", "")
+        colors_list = [_clean_color(c) for c in (r.get("colors") or []) if _clean_color(c)]
+        color = _clean_color(r.get("color", "")) or (colors_list[0] if colors_list else "")
+        if color and color not in colors_list:
+            colors_list = [color] + [c for c in colors_list if c != color]
+        series = str(r.get("series") or "").strip()
         articul_in_sheet = r.get("articul", "")
         factory_code = articul_in_sheet
         size = r.get("size") or ""
@@ -296,9 +353,13 @@ async def scan_invoice(
             "collection": coll,
             "season": (r.get("season") or "").strip() or default_season,
             "size": size,
+            "series": series,
+            "model_group": r.get("_group"),          # bir xil raqam = bitta model (ranglar) — jadvalda bitta model_key
+            "ai_repeat": bool(r.get("_repeat")),      # nakladnoyda 'Повтор' — bazada bor tovar, ilova bazadan bog'laydi
+            "same_model_as_prev": bool(r.get("same_model_as_prev")) or (r.get("_group") is not None and prev_src is not r),
             "description": desc,
             "color": color,
-            "colors": [color] if color else [],
+            "colors": colors_list or ([color] if color else []),
             "factory_code": factory_code,
             "model_code": factory_code,
             "quantity": qty,
