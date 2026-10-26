@@ -3243,3 +3243,6 @@ body.theme-light .cell-suspect { background-color: rgba(234, 179, 8, 0.28) !impo
 /* Bildirishnomalar telefonda ekrandan chiqmasin */
 #toast-container { max-width: calc(100vw - 24px) !important; }
 .toast { max-width: 100%; min-width: 0 !important; word-break: break-word; }
+
+/* MoySklad'da majburiy, lekin bo'sh katak */
+.cell-input.cell-required-empty { border-color: #f59e0b !important; background: rgba(245, 158, 11, 0.08) !important; }

@@ -220,7 +220,7 @@ const RefEdit = {
     size:        { title: 'Razmerni tahrirlash',   url: (id) => `/api/references/size-item/${id}`,   fields: [['name', 'Razmer']] },
     brand:       { title: 'Brendni tahrirlash',    url: (id) => `/api/references/brand/${id}`,       fields: [['name', 'Brend nomi']] },
     country:     { title: 'Mamlakatni tahrirlash', url: (id) => `/api/references/country/${id}`,     fields: [['name', 'Mamlakat nomi']] },
-    color:       { title: 'Rangni tahrirlash',     url: (id) => `/api/references/color/${id}`,       fields: [['name', 'Rang nomi (asosiy, turkcha)'], ['name_ru', 'Ruscha nomi'], ['name_en', 'Inglizcha nomi'], ['short_code', '3 harfli kod'], ['code_no', '№ No']] },
+    color:       { title: 'Rangni tahrirlash',     url: (id) => `/api/references/color/${id}`,       fields: [['name', 'Rang nomi (asosiy)'], ['name_ru', 'Ruscha nomi'], ['name_tr', 'Turkcha nomi'], ['name_en', 'Inglizcha nomi'], ['short_code', '3 harfli kod'], ['code_no', '№ No']] },
   },
   open(kind, id, current, refreshTab) {
     const k = this.kinds[kind]; if (!k) return;
@@ -717,9 +717,9 @@ function renderColorsSubtab(container) {
     <!-- Top Action & New Color Bar -->
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
       <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-        <input type="text" id="new-color-name" class="form-control" placeholder="Rang nomi, turkcha (Siyah)..." style="max-width: 170px;">
+        <input type="text" id="new-color-name" class="form-control" placeholder="${(References.settings?.color_primary_lang || 'ru') === 'tr' ? 'Rang nomi, turkcha (Siyah)...' : 'Rang nomi, ruscha (Черный)...'}" style="max-width: 170px;">
         <input type="text" id="new-color-code" class="form-control" placeholder="3 ta harf (SAF)..." maxlength="5" style="max-width: 130px; text-transform: uppercase;">
-        <input type="text" id="new-color-tr" class="form-control" placeholder="Ruscha (Черный)..." style="max-width: 150px;">
+        <input type="text" id="new-color-tr" class="form-control" placeholder="${(References.settings?.color_primary_lang || 'ru') === 'tr' ? 'Ruscha (Черный)...' : 'Turkcha (Siyah)...'}" style="max-width: 150px;">
         <input type="number" id="new-color-no" class="form-control" placeholder="№ No..." style="max-width: 80px;">
         <button class="btn btn-primary btn-sm" id="btn-add-color-ref">➕ Rang qo'shish</button>
       </div>
@@ -734,8 +734,8 @@ function renderColorsSubtab(container) {
         <thead>
           <tr>
             <th style="width: 60px;">№ No</th>
-            <th>Rang Nomi</th>
-            <th style="width: 190px;">Ruscha / Inglizcha</th>
+            <th>Rang Nomi (${(References.settings?.color_primary_lang || 'ru') === 'tr' ? 'turkcha' : 'ruscha'})</th>
+            <th style="width: 190px;">${(References.settings?.color_primary_lang || 'ru') === 'tr' ? 'Ruscha' : 'Turkcha'} / Inglizcha</th>
             <th style="width: 160px;">3 Harfli Kod (Artikul uchun)</th>
             <th style="width: 140px; text-align: center;">⭐ Tezkor (Top 10)</th>
             <th style="width: 90px; text-align: center;">Holat</th>
@@ -755,7 +755,7 @@ function renderColorsSubtab(container) {
             <b>${c.name}</b>
           </div>
         </td>
-        <td style="font-size:0.8rem; color: var(--text-muted);">${c.name_ru || '—'}${c.name_en ? ` <span style="opacity:.7">/ ${c.name_en}</span>` : ''} <button class="btn-icon" title="Tahrirlash (nom, ruscha, inglizcha, kod)" onclick='RefEdit.open("color", ${c.id}, JSON.parse(this.dataset.cur), "ref-colors")' data-cur="${JSON.stringify({name: c.name, name_ru: c.name_ru || '', name_en: c.name_en || '', short_code: c.short_code || '', code_no: c.code_no || ''}).replace(/"/g, '&quot;')}">✏️</button></td>
+        <td style="font-size:0.8rem; color: var(--text-muted);">${((References.settings?.color_primary_lang || 'ru') === 'tr' ? c.name_ru : c.name_tr) || '—'}${c.name_en ? ` <span style="opacity:.7">/ ${c.name_en}</span>` : ''} <button class="btn-icon" title="Tahrirlash (nom, ruscha, inglizcha, kod)" onclick='RefEdit.open("color", ${c.id}, JSON.parse(this.dataset.cur), "ref-colors")' data-cur="${JSON.stringify({name: c.name, name_ru: c.name_ru || '', name_tr: c.name_tr || '', name_en: c.name_en || '', short_code: c.short_code || '', code_no: c.code_no || ''}).replace(/"/g, '&quot;')}">✏️</button></td>
         <td>
           <input type="text" 
             class="form-control color-short-code-input" 
@@ -797,7 +797,7 @@ function renderColorsSubtab(container) {
       const res = await fetch('/api/references/color', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, short_code, code_no: code_no ? parseInt(code_no) : null, name_ru: (document.getElementById('new-color-tr')?.value || '').trim() })
+        body: JSON.stringify({ name, short_code, code_no: code_no ? parseInt(code_no) : null, [(References.settings?.color_primary_lang || 'ru') === 'tr' ? 'name_ru' : 'name_tr']: (document.getElementById('new-color-tr')?.value || '').trim() })
       });
       const data = await res.json();
       if (!res.ok) {

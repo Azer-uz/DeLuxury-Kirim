@@ -270,6 +270,7 @@ def _check_rows(rows: List[Dict[str, Any]], header: Dict[str, Any], settings: Di
             "season": _txt(r.get("season")),
             "brand": _txt(r.get("brand")),
             "factory_code": _txt(r.get("factory_code")),
+            "series": _txt(r.get("series")),
             "description": _txt(r.get("description")),
             "color": color,
             "color_code": color_code or "",
@@ -361,6 +362,19 @@ async def submit_to_moysklad(data: Dict[str, Any], request: Request, db: Session
         raise HTTPException(status_code=502, detail=f"MoySklad'dan ma'lumot olib bo'lmadi: {e}")
     await notify_if_changed(db, ms_attributes, "kirim yuborishda aniqlandi")
     ms_service.attribute_map = get_attribute_map(db, ms_attributes)
+    # MoySklad'da majburiy atributga bog'langan maydonlar bo'sh bo'lsa — aniq xato bilan to'xtaymiz
+    from backend.services.attributes_service import required_app_fields
+    _auto_filled = {"category", "product_type", "model_code", "collection", "color", "season"}
+    _labels = {"series": "Серия", "factory_code": "Код модели", "country": "Страна", "size": "Размер", "brand": "Бренд"}
+    _missing = []
+    for key in required_app_fields(ms_service.attribute_map, ms_attributes):
+        if key in _auto_filled:
+            continue
+        for it in prepared:
+            if not _txt(it.get(key)):
+                _missing.append({"row": it["row_index"], "field": key, "message": f"{it['row_index']}-qator: '{_labels.get(key, key)}' MoySklad'da majburiy — to'ldiring"})
+    if _missing:
+        raise HTTPException(status_code=422, detail={"message": "Majburiy maydonlar to'ldirilmagan", "errors": _missing})
     attr_problems = mapping_problems(ms_service.attribute_map, ms_attributes)
     if settings.get("size_enabled") and not ms_service.attribute_map.get("size", {}).get("enabled"):
         attr_problems.append("Razmer rejimi yoqilgan, lekin 'Размер' maydoni MoySklad atributiga bog'lanmagan — razmerlar farqlanmaydi")

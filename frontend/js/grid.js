@@ -133,6 +133,7 @@ const Grid = {
       group_name: defaultValues.group_name || "",
       brand: defaultValues.brand || "",
       factory_code: defaultValues.factory_code || "",
+      series: defaultValues.series || "",
       collection: defaultValues.collection || "",
       season: defaultValues.season || "",
       size: defaultValues.size || "",
@@ -405,6 +406,12 @@ const Grid = {
                    data-field="factory_code" data-row="${idx}" value="${this.escapeHtml(row.factory_code || '')}" placeholder="M-101 / 7788">
           </td>
 
+          <!-- Seriya (seriyadagi dona soni) -->
+          <td>
+            <input type="text" class="cell-input ${(Grid.requiredFields || []).includes('series') && !row.series ? 'cell-required-empty' : ''}" 
+                   list="dl-series" data-field="series" data-row="${idx}" value="${this.escapeHtml(row.series || '')}" placeholder="${(Grid.requiredFields || []).includes('series') ? 'majburiy' : '6 / 8'}" inputmode="numeric">
+          </td>
+
           <!-- Kolleksiya -->
           <td>
             <input type="text" class="cell-input" 
@@ -552,6 +559,9 @@ const Grid = {
       </datalist>
       <datalist id="dl-colors">
         ${colors.map(c => `<option value="${this.escapeHtml(c.name)}"></option>`).join('')}
+      </datalist>
+      <datalist id="dl-series">
+        ${(Grid.dictValues?.series || []).map(v => `<option value="${this.escapeHtml(v)}">`).join('')}
       </datalist>
       <datalist id="dl-sizes">
         ${sizes.map(s => `<option value="${this.escapeHtml(s)}"></option>`).join('')}
@@ -802,6 +812,7 @@ const Grid = {
     'product_type',
     'brand',
     'factory_code',
+    'series',
     'collection',
     'season',
     'size',
@@ -1632,6 +1643,7 @@ const Grid = {
       "Группа",
       "Бренд",
       "Код модели",
+      "Серия",
       "Коллекция",
       "Сезон",
       "Размер",
@@ -1687,6 +1699,7 @@ const Grid = {
         <td>${this.escapeHtml(r.group_name || '')}</td>
         <td>${this.escapeHtml(r.brand || '')}</td>
         <td>${this.escapeHtml(r.factory_code || '')}</td>
+        <td>${this.escapeHtml(r.series || '')}</td>
         <td>${this.escapeHtml(r.collection || '')}</td>
         <td>${this.escapeHtml(r.season || '')}</td>
         <td>${this.escapeHtml(r.size || '')}</td>

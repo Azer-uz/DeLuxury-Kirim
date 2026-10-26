@@ -22,6 +22,7 @@ APP_FIELDS: List[Dict[str, str]] = [
     {"key": "brand", "label": "Бренд", "default": "Бренд"},
     {"key": "model_code", "label": "Модель (avto: A26TOP00724)", "default": "Модель"},
     {"key": "factory_code", "label": "Код модели (zavod artikuli)", "default": "Код модели"},
+    {"key": "series", "label": "Серия (seriyadagi dona soni)", "default": "Серия"},
     {"key": "size", "label": "Размер", "default": "Размер"},
     {"key": "color", "label": "Цвет", "default": "Цвет"},
     {"key": "country", "label": "Страна (atribut sifatida; standart 'country' maydoni baribir to'ldiriladi)", "default": ""},
@@ -131,6 +132,17 @@ def save_attribute_map(db: Session, mapping: Dict[str, Any], attributes: List[Di
         clean[f["key"]] = {"attr_id": attr_id, "enabled": bool(entry.get("enabled")) and bool(attr_id)}
     set_raw_setting(db, MAP_KEY, json.dumps(clean, ensure_ascii=False))
     return clean
+
+def required_app_fields(mapping: Dict[str, Dict[str, Any]], attributes: List[Dict[str, Any]]) -> List[str]:
+    """MoySklad'da majburiy bo'lgan atributga bog'langan ilova maydonlari (qatorda bo'sh bo'lsa yuborilmaydi)."""
+    by_id = {a["id"]: a for a in attributes}
+    out = []
+    for key, entry in mapping.items():
+        a = by_id.get(entry.get("attr_id")) if entry.get("enabled") else None
+        if a and a.get("required"):
+            out.append(key)
+    return out
+
 
 def mapping_problems(mapping: Dict[str, Dict[str, Any]], attributes: List[Dict[str, Any]]) -> List[str]:
     """Yuborishdan oldin: yoqilgan maydon MoySklad'da yo'q bo'lsa; majburiy MoySklad maydoni bog'lanmagan bo'lsa"""

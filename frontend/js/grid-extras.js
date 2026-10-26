@@ -13,6 +13,22 @@
     ai_conf_min: 0.85,
   };
 
+  // MoySklad'da majburiy bo'lgan maydonlar va lug'at qiymatlari (Серия, Размерный ряд)
+  Grid.requiredFields = Grid.requiredFields || [];
+  Grid.dictValues = Grid.dictValues || {};
+  Grid.loadAttributeMeta = async function () {
+    try {
+      const r = await fetch('/api/attributes/required-fields'); if (r.ok) Grid.requiredFields = (await r.json()).fields || [];
+    } catch (e) {}
+    for (const f of ['series']) {
+      try { const r = await fetch(`/api/attributes/dict-values/${f}`); if (r.ok) Grid.dictValues[f] = (await r.json()).values || []; } catch (e) {}
+    }
+    const th = document.getElementById('th-series');
+    if (th) th.textContent = Grid.requiredFields.includes('series') ? 'Серия *' : 'Серия';
+    if (typeof Grid.render === 'function' && Array.isArray(Grid.rows) && Grid.rows.length) Grid.render();
+  };
+  document.addEventListener('DOMContentLoaded', () => { setTimeout(() => Grid.loadAttributeMeta(), 800); });
+
   const hasCyr = s => /[Ѐ-ӿ]/.test(s || '');
   const hasLat = s => /[A-Za-z]/.test(s || '');
 
@@ -53,6 +69,12 @@
     }
     const coll = (r.collection || '').trim();
     if (coll && References.getSeasonCode && !References.getSeasonCode(coll)) out.push({ field: 'collection', msg: `Kolleksiya "${coll}" uchun mavsum kodi yo'q` });
+    (Grid.requiredFields || []).forEach(f => {
+      if (['category', 'product_type', 'model_code', 'collection', 'color', 'season'].includes(f)) return;
+      if (!String(r[f] || '').trim()) out.push({ field: f, msg: `'${f === 'series' ? 'Серия' : f}' MoySklad'da majburiy — to'ldiring` });
+    });
+    const ser = String(r.series || '').trim();
+    if (ser && (Grid.dictValues?.series || []).length && !Grid.dictValues.series.map(String).includes(ser)) out.push({ field: 'series', msg: `Серия "${ser}" MoySklad lug'atida yo'q (yuborishda yangi qiymat yaratiladi)` });
     const fc = (r.factory_code || '').trim();
     if (fc && hasCyr(fc) && hasLat(fc)) out.push({ field: 'factory_code', msg: 'Kod modelida kirill va lotin aralash (O/0, С/C?)' });
     if (References.settings?.color_enabled) {

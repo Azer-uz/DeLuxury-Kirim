@@ -631,6 +631,7 @@
             <option value="size">Размер</option>
             <option value="description">Описание</option>
             <option value="factory_code">Код модели</option>
+            <option value="series">Серия</option>
             <option value="quantity">Количество</option>
             <option value="color">Цвет (qo'shish)</option>
           </select>
@@ -655,6 +656,7 @@
                   <th class="col-auto" style="min-width: 130px;">Группа (Auto)</th>
                   <th style="min-width: 130px;">Бренд *</th>
                   <th style="min-width: 125px;">Код модели</th>
+                  <th style="min-width: 80px;" id="th-series">Серия</th>
                   <th style="min-width: 100px;">Коллекция *</th>
                   <th style="min-width: 120px;">Сезон</th>
                   <th style="min-width: 80px;">Размер</th>
@@ -855,6 +857,14 @@
               </label>
               <label style="display: flex; gap: 0.5rem; align-items: center;">
                 <input type="checkbox" id="set-usd-enabled"> Dollarda (USD) kirim qilish imkoniyati
+              </label>
+              <label style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                Ranglarning asosiy nomi:
+                <select id="set-color-lang" class="form-control" style="width: auto; padding: 0.2rem 0.5rem; height: 30px;">
+                  <option value="ru">Ruscha (Черный)</option>
+                  <option value="tr">Turkcha (Siyah)</option>
+                </select>
+                <small style="color: var(--text-muted);">Manbalar → Ranglar jadvali va qo'shish formasi shu tilga moslanadi</small>
               </label>
               <div style="color: var(--text-muted);">
                 Artikul namunasi: <code id="set-articul-example">A26TOP00724</code>
@@ -1228,13 +1238,13 @@
   <script src="js/auth.js?v=1.0"></script>
   <script src="js/dashboard.js?v=2.0"></script>
   <script src="js/supplies.js?v=3.0"></script>
-  <script src="js/references.js?v=3.1"></script>
-  <script src="js/grid.js?v=3.3"></script>
-  <script src="js/grid-extras.js?v=1.1"></script>
+  <script src="js/references.js?v=3.2"></script>
+  <script src="js/grid.js?v=3.4"></script>
+  <script src="js/grid-extras.js?v=1.2"></script>
   <script src="js/ai-scanner.js?v=4.0"></script>
   <script src="js/history.js"></script>
   <script src="js/cp-search.js?v=1.0"></script>
-  <script src="js/app.js?v=3.7"></script>
+  <script src="js/app.js?v=3.8"></script>
 
 </body>
 </html>

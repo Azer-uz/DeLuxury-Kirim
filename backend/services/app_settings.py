@@ -20,6 +20,7 @@ DEFAULTS: Dict[str, Any] = {
     "size_in_name": True,        # Razmer rejimida tovar nomi oxiriga razmer qo'shiladi (kassa/inventarizatsiyada ajratish uchun)
     "usd_enabled": False,        # Kirimni dollarda qilish imkoniyati (odatda faqat so'm)
     "allowed_logins": "",        # Bo'sh — MoySklad hisobining barcha xodimlari kira oladi
+    "color_primary_lang": "ru",   # Ranglarning asosiy nomi: ru (ruscha) | tr (turkcha) — mijozga qarab
     # Telegram bildirishnomalar — Sozlamalar sahifasidan boshqariladi; bo'sh bo'lsa .env qiymati ishlatiladi
     "telegram_enabled": True,
     "telegram_bot_token": None,   # None -> .env TELEGRAM_BOT_TOKEN
@@ -86,6 +87,8 @@ def update_app_settings(db: Session, changes: Dict[str, Any]) -> Dict[str, Any]:
             value = bool(value)
         elif value is not None:
             value = str(value).strip()
+        if key == "color_primary_lang" and value not in ("ru", "tr"):
+            value = "ru"
         if key in SECRET_KEYS and value and ("…" in value or value == "***"):
             continue  # niqoblangan qiymat qaytib keldi — tegmaymiz
         row = db.query(AppSetting).filter(AppSetting.key == key).first()

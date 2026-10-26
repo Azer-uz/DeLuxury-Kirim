@@ -1,6 +1,6 @@
 """Sozlamalar → MoySklad доп. поля: ko'rish, yaratish, o'zgartirish, o'chirish, ilova maydonlariga bog'lash"""
 import html
-from typing import Any, Dict
+from typing import Any, Dict, List
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from backend.database import get_db
@@ -63,12 +63,62 @@ async def create(data: Dict[str, Any], request: Request, db: Session = Depends(g
     diff_snapshot(db, await svc.list_attributes())  # o'zimiz qo'shganimiz "tashqi o'zgarish" deb xabar bermasin
     return {"status": "created", "attribute": attr, **(await overview(db))}
 
+@router.get("/required-fields")
+async def required_fields(db: Session = Depends(get_db)):
+    """Qatorda bo'sh bo'lmasligi kerak bo'lgan ilova maydonlari (MoySklad'da majburiy atributga bog'langan)"""
+    from backend.services.attributes_service import required_app_fields
+    try:
+        attributes = await svc.list_attributes()
+    except MoySkladError:
+        return {"fields": []}
+    return {"fields": required_app_fields(get_attribute_map(db, attributes), attributes)}
+
+
+_DICT_CACHE: Dict[str, Any] = {}
+
+
+@router.get("/dict-values/{field}")
+async def dict_values(field: str, db: Session = Depends(get_db)):
+    """Ilova maydoniga bog'langan MoySklad lug'atining qiymatlari (jadvaldagi ro'yxat uchun), 10 daqiqa kesh"""
+    import time as _t
+    cached = _DICT_CACHE.get(field)
+    if cached and _t.time() - cached["ts"] < 600:
+        return {"field": field, "values": cached["values"]}
+    try:
+        attributes = await svc.list_attributes()
+    except MoySkladError:
+        return {"field": field, "values": []}
+    mapping = get_attribute_map(db, attributes)
+    entry = mapping.get(field) or {}
+    attr = next((a for a in attributes if a["id"] == entry.get("attr_id")), None) if entry.get("attr_id") else None
+    dict_id = (attr or {}).get("dictionary_id")
+    values: List[str] = []
+    if dict_id:
+        offset = 0
+        while True:
+            data = await svc.ms._call("GET", f"entity/customentity/{dict_id}", params={"limit": 1000, "offset": offset})
+            rows = data.get("rows", [])
+            values += [r.get("name") for r in rows if r.get("name")]
+            if len(rows) < 1000:
+                break
+            offset += 1000
+    def _k(v):
+        try:
+            return (0, float(str(v).replace(",", ".")), "")
+        except ValueError:
+            return (1, 0, str(v).lower())
+    values = sorted(set(values), key=_k)
+    _DICT_CACHE[field] = {"ts": _t.time(), "values": values}
+    return {"field": field, "values": values}
+
+
 @router.put("/map")
 async def update_map(data: Dict[str, Any], request: Request, db: Session = Depends(get_db)):
     require_admin(request)
     try:
         attributes = await svc.list_attributes()
         mapping = save_attribute_map(db, data.get("mapping") or {}, attributes)
+        _DICT_CACHE.clear()
     except MoySkladError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"status": "saved", "mapping": mapping, "problems": mapping_problems(mapping, attributes)}

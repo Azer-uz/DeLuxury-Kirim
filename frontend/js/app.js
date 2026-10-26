@@ -892,6 +892,7 @@ function applySettingsUI() {
   setVal('set-size-enabled', s.size_enabled);
   setVal('set-size-in-name', s.size_in_name);
   setVal('set-usd-enabled', s.usd_enabled);
+  setVal('set-color-lang', s.color_primary_lang || 'ru');
   setVal('set-company-name', s.company_name);
   setVal('set-allowed-logins', s.allowed_logins);
   setVal('set-tg-enabled', s.telegram_enabled);
@@ -1144,6 +1145,7 @@ function setupAppSettingsForm() {
       size_enabled: document.getElementById('set-size-enabled')?.checked,
       size_in_name: document.getElementById('set-size-in-name')?.checked,
       usd_enabled: document.getElementById('set-usd-enabled')?.checked,
+      color_primary_lang: document.getElementById('set-color-lang')?.value || 'ru',
       company_name: document.getElementById('set-company-name')?.value || '',
       allowed_logins: document.getElementById('set-allowed-logins')?.value || ''
     };
