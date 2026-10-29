@@ -322,6 +322,11 @@ const SuppliesList = {
     if (this.statusFilter) {
       result = result.filter(s => s.status === this.statusFilter);
     }
+    // 4b. Xodim filtri: faqat mening qoralamalarim / kirimlarim (login bo'yicha)
+    if (this.onlyMine) {
+      const me = (typeof Auth !== 'undefined' && Auth.user && Auth.user.login) ? String(Auth.user.login).toLowerCase() : '';
+      result = result.filter(s => me && String(s.created_by_login || '').toLowerCase() === me);
+    }
 
     // 5. Full Dataset Sorting (across all 100/500+ matching items)
     result.sort((a, b) => {
@@ -475,6 +480,7 @@ const SuppliesList = {
                 ${s.name || '-'}
               </span>
             `}
+            ${s.created_by_name ? `<div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 2px; white-space: nowrap;" title="${isDraft ? 'Qoralamani boshlagan' : 'Kirimni yuborgan'} xodim${s.updated_by_name && s.updated_by_name !== s.created_by_name ? `; oxirgi tahrir: ${s.updated_by_name}` : ''}">👤 ${s.created_by_name}${s.updated_by_name && s.updated_by_name !== s.created_by_name ? ` → ${s.updated_by_name}` : ''}</div>` : ''}
           </td>
           <td style="font-size: 0.82rem; color: var(--text-muted); white-space: nowrap;">${formattedDate}</td>
           <td>
@@ -661,6 +667,14 @@ const SuppliesList = {
     if (statusSelect) {
       statusSelect.addEventListener('change', (e) => {
         this.statusFilter = e.target.value;
+        this.applyFiltersAndSort();
+      });
+    }
+    // 5b. Xodim filtri
+    const mineSelect = document.getElementById('supplies-filter-user');
+    if (mineSelect) {
+      mineSelect.addEventListener('change', (e) => {
+        this.onlyMine = e.target.value === 'mine';
         this.applyFiltersAndSort();
       });
     }

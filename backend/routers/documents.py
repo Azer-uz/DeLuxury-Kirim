@@ -25,6 +25,14 @@ logger = logging.getLogger(__name__)
 ms_service = MoySkladService()
 attributes_service = AttributesService(ms_service)
 
+def _req_user(request: Request) -> Dict[str, str]:
+    """Sessiyadagi xodim (middleware request.state.user ga qo'yadi)"""
+    u = getattr(request.state, "user", None) or {}
+    login = str(u.get("login") or "").strip()
+    name = str(u.get("name") or login).strip()
+    return {"login": login, "name": name}
+
+
 @router.get("/drafts")
 def get_all_drafts(db: Session = Depends(get_db)):
     """Retrieve all saved drafts with summary metadata."""
@@ -53,6 +61,9 @@ def get_all_drafts(db: Session = Depends(get_db)):
             "total_qty": d.total_qty,
             "total_sum_buy": d.total_sum_buy,
             "total_sum_sale": d.total_sum_sale,
+            "created_by_login": d.created_by_login or "",
+            "created_by_name": d.created_by_name or "",
+            "updated_by_name": d.updated_by_name or "",
             "updated_at": (d.updated_at + datetime.timedelta(hours=5)).strftime("%Y-%m-%d %H:%M") if d.updated_at else ""
         })
     return results
@@ -84,8 +95,9 @@ def get_draft_by_id(draft_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Qoralama ma'lumotini o'qishda xatolik: {e}")
 
 @router.post("/draft")
-def save_draft(data: Dict[str, Any], db: Session = Depends(get_db)):
+def save_draft(data: Dict[str, Any], request: Request, db: Session = Depends(get_db)):
     """Save or update draft with metadata."""
+    who = _req_user(request)
     header = data.get("header", {})
     rows = data.get("rows", [])
     draft_id = data.get("draft_id") or header.get("draft_id")
@@ -127,7 +139,10 @@ def save_draft(data: Dict[str, Any], db: Session = Depends(get_db)):
             total_qty=t_qty,
             total_sum_buy=t_sum_buy,
             total_sum_sale=t_sum_sale,
-            data_json=json_str
+            data_json=json_str,
+            created_by_login=who["login"] or None,
+            created_by_name=who["name"] or None,
+            updated_by_name=who["name"] or None,
         )
         db.add(draft)
     else:
@@ -143,6 +158,10 @@ def save_draft(data: Dict[str, Any], db: Session = Depends(get_db)):
         draft.total_sum_buy = t_sum_buy
         draft.total_sum_sale = t_sum_sale
         draft.data_json = json_str
+        if not draft.created_by_login and who["login"]:   # eski (xodimsiz) qoralama — birinchi saqlagan egasi
+            draft.created_by_login, draft.created_by_name = who["login"], who["name"]
+        if who["name"]:
+            draft.updated_by_name = who["name"]
         draft.updated_at = datetime.datetime.utcnow()
 
     db.commit()
@@ -168,6 +187,13 @@ def _num(val: Any, default: float = 0.0) -> float:
         return float(val) if val not in (None, "") else default
     except (TypeError, ValueError):
         return default
+
+def _with_author(notes: Any, who: Dict[str, str]) -> str:
+    """MoySklad kirim izohi: foydalanuvchi izohi + kim yuborgani. Bitta API tokenida MoySklad tarixida ko'rinmaydi — shu yerda ko'rinadi."""
+    base = str(notes or "").strip()
+    tag = f"Kirim ilovasi: {who['name']}" + (f" ({who['login']})" if who["login"] and who["login"] != who["name"] else "") if who["name"] else "Kirim ilovasi"
+    return (base + "\n" + tag) if base else tag
+
 
 def _txt(val: Any) -> str:
     return str(val or "").strip()
@@ -461,8 +487,11 @@ async def submit_to_moysklad(data: Dict[str, Any], request: Request, db: Session
     if not manual_number:
         doc_number = ""
 
-    # 3. Hujjat yozuvi (tarix uchun)
+    # 3. Hujjat yozuvi (tarix uchun) — kim yuborgani bilan
+    who = _req_user(request)
     new_doc = PrixodDocument(
+        created_by_login=who["login"] or None,
+        created_by_name=who["name"] or None,
         doc_number=doc_number,
         counterparty_name=_txt(header.get("counterparty_name")),
         counterparty_id=_txt(header.get("counterparty_id")),
@@ -491,7 +520,7 @@ async def submit_to_moysklad(data: Dict[str, Any], request: Request, db: Session
         store_id=_txt(header.get("store_id")),
         items=items,
         doc_number=doc_number,
-        notes=header.get("notes"),
+        notes=_with_author(header.get("notes"), who),   # MoySklad izohida: "Kirim ilovasi: Ism (login)"
         doc_date=_txt(header.get("doc_date")) or _txt(header.get("date")),
         currency=currency,
         rate=rate,
@@ -583,6 +612,8 @@ def get_documents_history(db: Session = Depends(get_db)):
             "moysklad_document_name": d.moysklad_document_name,
             "moysklad_url": ui_url,
             "error_message": d.error_message,
+            "created_by_login": d.created_by_login or "",
+            "created_by_name": d.created_by_name or "",
             "created_at": d.created_at.isoformat() if d.created_at else ""
         })
     return res

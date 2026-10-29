@@ -419,6 +419,14 @@ async def get_all_supplies(
             elif all_rows:
                 _save_disk_cache(CACHE_SUPPLIES_FILE, all_rows)
 
+            # Kirim ilovasidan yuborilgan hujjatlar: MoySklad id -> xodim (bitta API tokenida MoySklad "muallif"ni bilmaydi)
+            author_of: Dict[str, Dict[str, str]] = {}
+            try:
+                for pd in db.query(PrixodDocument.moysklad_document_id, PrixodDocument.created_by_login, PrixodDocument.created_by_name).filter(PrixodDocument.moysklad_document_id.isnot(None)).all():
+                    if pd[0]:
+                        author_of[pd[0]] = {"login": pd[1] or "", "name": pd[2] or ""}
+            except Exception:
+                author_of = {}
             formatted = []
             for s in all_rows:
                 sum_val = float(s.get("sum", 0)) / 100.0
@@ -432,8 +440,11 @@ async def get_all_supplies(
                 store_id = store_obj.get("id") or (store_obj.get("meta", {}).get("href", "").split("/")[-1] if store_obj.get("meta") else "")
                 store_name = store_obj.get("name") or _store_name_cache.get(store_id, "Основной склад")
                 
+                who = author_of.get(s.get("id") or "", {})
                 formatted.append({
                     "id": s.get("id"),
+                    "created_by_login": who.get("login", ""),
+                    "created_by_name": who.get("name", ""),
                     "name": s.get("name", ""),
                     "moment": s.get("moment", "")[:16].replace("T", " "),
                     "agent_name": agent_name,
@@ -471,6 +482,9 @@ async def get_all_supplies(
                     "status": "Qoralama",
                     "is_draft": True,
                     "draft_id": d.id,
+                    "created_by_login": d.created_by_login or "",
+                    "created_by_name": d.created_by_name or "",
+                    "updated_by_name": d.updated_by_name or "",
                     "items_count": len(useful),
                     "applicable": False,
                     "moysklad_url": ""

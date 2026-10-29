@@ -127,6 +127,8 @@ class PrixodDocument(Base):
     moysklad_document_name = Column(String(100), nullable=True)
     error_message = Column(Text, nullable=True)
     notes = Column(Text, nullable=True)
+    created_by_login = Column(String(100), nullable=True, index=True)   # ilovaga kirgan xodim (MoySklad login)
+    created_by_name = Column(String(150), nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
@@ -214,5 +216,8 @@ class DraftState(Base):
     total_sum_buy = Column(Float, default=0.0)
     total_sum_sale = Column(Float, default=0.0)
     data_json = Column(Text, nullable=False)
+    created_by_login = Column(String(100), nullable=True, index=True)   # qoralamani boshlagan xodim
+    created_by_name = Column(String(150), nullable=True)
+    updated_by_name = Column(String(150), nullable=True)                # oxirgi tahrir qilgan xodim
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
