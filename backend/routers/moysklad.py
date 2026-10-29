@@ -92,12 +92,20 @@ async def search_products(q: str = "", limit: int = 40, db: Session = Depends(ge
         for val in {q, compact, " ".join(toks), "-".join(toks), q.upper(), " ".join(toks).upper(), "-".join(toks).upper()}:
             queries.append({"filter": f"{href}={val}", "limit": lim})
 
+    errors: List[str] = []
+
     async def _one(params):
         try:
             return await ms_service._call("GET", "entity/assortment", params=params)
-        except MoySkladError:
+        except MoySkladError as e:
+            errors.append(str(e))
             return {}
     results = await _aio.gather(*[_one(p) for p in queries])
+    if errors and len(errors) >= len(queries):   # birorta so'rov ham o'tmadi — "Topilmadi" emas, sabab ko'rsatiladi
+        msg = errors[0]
+        if "1056" in msg or "аутентификации" in msg.lower() or "401" in msg:
+            msg = "MoySklad API tokeni yaroqsiz (401). Bosh ilovaga qayta kirib ko'ring yoki administratorga xabar bering."
+        return {"items": [], "query": q, "error": msg[:200]}
     seen = set(); rows = []
     for data in results:
         for p in (data.get("rows", []) if isinstance(data, dict) else []):

@@ -19,6 +19,11 @@ class RateLimitGateway:
         self.settings = get_settings()
         self.token = self.settings.moysklad_token
         self.base_url = self.settings.moysklad_api_url.rstrip("/")
+        self._token_reload_ts = 0.0
+        fresh = self._read_token_from_files()
+        if fresh and fresh != self.token:
+            logger.info("MoySklad token MOYSKLAD_TOKEN_FILE dan olindi")
+            self.token = fresh
         # MoySklad: bitta token uchun 5 ta parallel so'rov. 4 — bot va boshqa xizmatlarga zaxira qoldiradi
         self.semaphore = asyncio.Semaphore(4)
         self.rate_limit_remaining = 300
@@ -27,6 +32,35 @@ class RateLimitGateway:
         
         # Simple TTL Cache: {cache_key: (timestamp, data)}
         self._cache: Dict[str, tuple[float, Any]] = {}
+
+    def _read_token_from_files(self) -> str:
+        """MOYSKLAD_TOKEN= qatorini fayldan o'qiydi: avval MOYSKLAD_TOKEN_FILE, keyin o'z .env. Topilmasa ''."""
+        from backend.config import ENV_PATH
+        paths = [p for p in [self.settings.moysklad_token_file, str(ENV_PATH)] if p]
+        for path in paths:
+            try:
+                for line in open(path, encoding="utf-8"):
+                    line = line.strip()
+                    if line.startswith("MOYSKLAD_TOKEN=") or line.startswith("MOYSKLAD_TOKEN ="):
+                        val = line.split("=", 1)[1].strip().strip('"').strip("'")
+                        if val:
+                            return val
+            except OSError:
+                continue
+        return ""
+
+    def reload_token(self) -> bool:
+        """401 dan keyin: fayldan yangi token o'qib, o'zgargan bo'lsa True. 2 soniyada ko'pi bilan 1 marta o'qiladi."""
+        now = time.time()
+        if now - self._token_reload_ts < 2.0:
+            return False
+        self._token_reload_ts = now
+        fresh = self._read_token_from_files()
+        if fresh and fresh != self.token:
+            self.token = fresh
+            logger.warning("MoySklad token 401 qaytardi — fayldan yangi token o'qildi, so'rov qayta yuboriladi")
+            return True
+        return False
 
     def _headers(self) -> Dict[str, str]:
         return {
@@ -96,6 +130,8 @@ class RateLimitGateway:
                             return resp.json() if resp.content.strip() else True  # DELETE ko'pincha bo'sh 200 qaytaradi
                         elif resp.status_code == 204:
                             return True
+                        elif resp.status_code == 401 and attempt < max_retries and self.reload_token():
+                            continue   # token yangilandi — xuddi shu so'rovni yangi token bilan takrorlaymiz
                         elif resp.status_code in (429, 503):
                             # Rate limited
                             retry_sec = 2.0 * attempt

@@ -69,7 +69,7 @@ class MoySkladService:
 
     # ================= ULANISH VA SPRAVOCHNIKLAR =================
     async def test_connection(self) -> Dict[str, Any]:
-        if not self.token:
+        if not gateway.token:
             return {"status": "error", "message": "MoySklad API token kiritilmagan (.env faylida MOYSKLAD_TOKEN yo'q)"}
         try:
             data = await self._call("GET", "entity/organization")

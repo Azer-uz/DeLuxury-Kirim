@@ -43,7 +43,7 @@
       if (my !== this.seq) return;
       this.items = d.items || [];
       st.textContent = d.error ? ('Xato: ' + d.error) : (this.items.length && d.exact === false ? `Aniq moslik yo'q — o'xshashlari: ${this.items.length} ta` : `${this.items.length} ta topildi`);
-      if (!this.items.length) { tb.innerHTML = '<tr><td colspan="10" style="color: var(--text-muted);">Topilmadi</td></tr>'; return; }
+      if (!this.items.length) { tb.innerHTML = d.error ? `<tr><td colspan="10" style="color: #b45309;">⚠️ ${this.esc(d.error)}</td></tr>` : '<tr><td colspan="10" style="color: var(--text-muted);">Topilmadi</td></tr>'; return; }
       const fmt = (n) => (n || n === 0) ? Number(n).toLocaleString('ru-RU') : '—';
       tb.innerHTML = this.items.map((p, i) => `
         <tr>

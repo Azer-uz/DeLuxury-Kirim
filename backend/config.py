@@ -8,6 +8,10 @@ ENV_PATH = BASE_DIR / ".env"
 
 class Settings(BaseSettings):
     moysklad_token: str = ""
+    # Token manbai fayl (ixtiyoriy): shu fayldagi MOYSKLAD_TOKEN= qatori asosiy hisoblanadi va 401 bo'lganda qayta o'qiladi.
+    # Said Baraka: bosh ilova har login'da yangi token oladi (eski tokenlar bekor bo'ladi) va uni o'z .env'iga yozadi —
+    # MOYSKLAD_TOKEN_FILE=/var/www/moysklad-app/backend/.env qo'yilsa Kirim o'sha yangi tokenni avtomatik oladi.
+    moysklad_token_file: str = ""
     moysklad_api_url: str = "https://api.moysklad.ru/api/remap/1.2"
     gemini_api_key: str = ""
     telegram_bot_token: str = ""
